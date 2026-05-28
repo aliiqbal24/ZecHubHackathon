@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
+import { WALLET_PRESETS } from "./wallet.js";
 import type { ZecGuardConfig } from "./types.js";
 
 export function findWorkspaceRoot(start = process.cwd()): string {
@@ -34,7 +35,20 @@ export function loadConfig(): ZecGuardConfig {
     throw new Error(`Missing ZecGuard config at ${configPath}`);
   }
 
-  return YAML.parse(fs.readFileSync(configPath, "utf8")) as ZecGuardConfig;
+  const raw = YAML.parse(fs.readFileSync(configPath, "utf8")) as ZecGuardConfig;
+
+  if (!raw.verification) {
+    raw.verification = { mode: "mock", minConfirmations: 1 };
+  }
+  raw.verification.minConfirmations ??= 1;
+
+  if (raw.agent.walletPreset && !WALLET_PRESETS[raw.agent.walletPreset]) {
+    throw new Error(
+      `Unknown walletPreset "${raw.agent.walletPreset}". Valid presets: ${Object.keys(WALLET_PRESETS).join(", ")}`
+    );
+  }
+
+  return raw;
 }
 
 export function readConfigText(): string {

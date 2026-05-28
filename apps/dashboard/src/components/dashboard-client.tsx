@@ -36,7 +36,7 @@ function statusLabel(status: Purchase["status"]): string {
 function statusTone(status: Purchase["status"]): string {
   if (status === "receipted" || status === "fulfilled") return "good";
   if (status === "policy_blocked" || status === "verification_failed" || status === "payment_failed") return "bad";
-  if (status === "awaiting_approval" || status === "payment_submitted") return "warn";
+  if (status === "awaiting_approval" || status === "payment_submitted" || status === "pending_confirmation") return "warn";
   return "neutral";
 }
 
@@ -257,18 +257,19 @@ function WalletMetric({
   busy: boolean;
   onTopUp: () => void;
 }) {
+  const isReal = wallet.mode === "external-cli";
   return (
     <article className="metric-card">
       <div className="metric-icon">
         <Coins size={18} />
       </div>
       <div>
-        <span>Agent balance</span>
+        <span>Agent balance{wallet.balanceSource === "live" ? " (live)" : wallet.balanceSource === "cached" ? " (cached)" : ""}</span>
         <strong>{zec(wallet.balanceZats)}</strong>
         <small>{wallet.address.slice(0, 18)}...</small>
       </div>
-      <button className="mini-button" onClick={onTopUp} disabled={busy}>
-        <Coins size={14} />
+      <button className="mini-button" onClick={onTopUp} disabled={busy} title={isReal ? "Refresh balance" : "Add 0.10 ZEC"}>
+        {isReal ? <RefreshCw size={14} /> : <Coins size={14} />}
       </button>
     </article>
   );

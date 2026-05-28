@@ -3,7 +3,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getZecGuardHome, loadConfig } from "./config.js";
 import { zecToZats } from "./money.js";
-import type { ActivityEvent, PaymentLedgerEntry, PaymentRecord, Purchase, VendorOrder, ZecGuardState } from "./types.js";
+import { createWalletAdapter } from "./wallet.js";
+import type { ActivityEvent, PaymentLedgerEntry, PaymentRecord, Purchase, VendorOrder, ZecGuardConfig, ZecGuardState } from "./types.js";
 
 const INITIAL_BALANCE_ZEC = "0.25";
 
@@ -13,13 +14,17 @@ function statePath(): string {
 
 export function createInitialState(): ZecGuardState {
   const config = loadConfig();
+  const isMock = config.agent.walletMode === "mock";
+
   return {
     wallet: {
       mode: config.agent.walletMode,
       address: config.agent.walletAddress,
-      balanceZats: zecToZats(INITIAL_BALANCE_ZEC),
+      balanceZats: isMock ? zecToZats(INITIAL_BALANCE_ZEC) : 0,
       spentTodayZats: 0,
-      spentMonthZats: 0
+      spentMonthZats: 0,
+      balanceSource: isMock ? "mock" : "cached",
+      balanceUpdatedAt: new Date().toISOString()
     },
     purchases: [],
     activity: [
@@ -28,7 +33,9 @@ export function createInitialState(): ZecGuardState {
         timestamp: new Date().toISOString(),
         kind: "system",
         title: "ZecGuard initialized",
-        detail: "Mock agent wallet funded for local prototype."
+        detail: isMock
+          ? "Mock agent wallet funded for local prototype."
+          : "External wallet configured. Balance will update on next query."
       }
     ],
     vendorOrders: [],
@@ -125,6 +132,20 @@ export function findMatchingLedgerPayment(state: ZecGuardState, order: VendorOrd
       payment.payTo === order.quote.payTo &&
       payment.memo === order.quote.memo
   );
+}
+
+export async function refreshWalletBalance(state: ZecGuardState, config: ZecGuardConfig): Promise<void> {
+  if (config.agent.walletMode === "mock") return;
+
+  const adapter = createWalletAdapter(config);
+  try {
+    const balanceZats = await adapter.getBalance();
+    state.wallet.balanceZats = balanceZats;
+    state.wallet.balanceSource = "live";
+    state.wallet.balanceUpdatedAt = new Date().toISOString();
+  } catch {
+    state.wallet.balanceSource = "cached";
+  }
 }
 
 function normalizeState(state: Partial<ZecGuardState>): ZecGuardState {

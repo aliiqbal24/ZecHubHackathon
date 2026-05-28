@@ -5,6 +5,7 @@ export type PurchaseStatus =
   | "awaiting_approval"
   | "approved"
   | "payment_submitted"
+  | "pending_confirmation"
   | "vendor_verified"
   | "fulfilled"
   | "receipted"
@@ -13,6 +14,44 @@ export type PurchaseStatus =
   | "policy_blocked"
   | "payment_failed"
   | "verification_failed";
+
+export type TransactionStatus = "pending" | "confirmed" | "not_found";
+
+export interface TransactionInfo {
+  txId: string;
+  status: TransactionStatus;
+  confirmations: number;
+  blockHeight?: number;
+}
+
+export type WalletPresetName = "zingo-cli" | "zcash-cli" | "zallet";
+
+export interface WalletPreset {
+  name: WalletPresetName;
+  label: string;
+  sendCommandTemplate: string;
+  balanceCommand: string;
+  transactionCheckCommandTemplate: string;
+}
+
+export type VerificationMode = "mock" | "external-cli" | "lightwalletd";
+
+export interface VerificationConfig {
+  mode: VerificationMode;
+  lightwalletdUrl?: string;
+  viewingKey?: string;
+  externalCliCommand?: string;
+  minConfirmations: number;
+}
+
+export interface VerifiedPayment {
+  txId: string;
+  amountZec: string;
+  memo: string;
+  confirmations: number;
+  blockHeight?: number;
+  matchedAt: string;
+}
 
 export type FulfillmentType = "digital" | "physical" | "service";
 
@@ -23,6 +62,9 @@ export interface AgentConfig {
   walletMode: "mock" | "external-cli";
   walletAddress: string;
   externalCliCommand?: string;
+  externalCliBalanceCommand?: string;
+  externalCliTxCheckCommand?: string;
+  walletPreset?: WalletPresetName;
 }
 
 export interface SpendingConfig {
@@ -66,6 +108,7 @@ export interface ZecGuardConfig {
   vendors: VendorConfig;
   privacy: PrivacyConfig;
   shippingProfiles: ShippingProfile[];
+  verification?: VerificationConfig;
 }
 
 export interface PrivacyDisclosure {
@@ -234,6 +277,8 @@ export interface WalletState {
   balanceZats: number;
   spentTodayZats: number;
   spentMonthZats: number;
+  balanceSource?: "mock" | "cached" | "live";
+  balanceUpdatedAt?: string;
 }
 
 export interface VendorOrder {

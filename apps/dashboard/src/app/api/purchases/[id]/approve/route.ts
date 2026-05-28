@@ -8,6 +8,8 @@ import {
   recordPayment,
   saveState,
   verifyReceipt,
+  waitForConfirmation,
+  zatsToZec,
   type Purchase,
   type ShippingProfile
 } from "@zecguard/core";
@@ -60,14 +62,34 @@ export async function POST(
     return NextResponse.json({ error: "Blocked purchases need an override reason" }, { status: 409 });
   }
 
+  const adapter = createWalletAdapter(config);
+
+  if (config.agent.walletMode === "external-cli") {
+    try {
+      const liveBalance = await adapter.getBalance();
+      if (liveBalance < purchase.amountZats) {
+        return NextResponse.json(
+          { error: `Insufficient wallet balance: ${zatsToZec(liveBalance)} ZEC available, ${purchase.amountZec} ZEC needed.` },
+          { status: 402 }
+        );
+      }
+    } catch (err) {
+      return NextResponse.json(
+        { error: `Could not check wallet balance: ${err instanceof Error ? err.message : String(err)}` },
+        { status: 502 }
+      );
+    }
+  }
+
   const profile =
     config.shippingProfiles.find((item) => item.id === body.profileId) ?? config.shippingProfiles[0];
   const releasedPii = selectReleasedPii(purchase, profile);
-  const adapter = createWalletAdapter(config);
   const payment = await adapter.sendPayment(purchase, state, config);
   const now = new Date().toISOString();
 
-  state.wallet.balanceZats -= payment.amountZats;
+  if (config.agent.walletMode === "mock") {
+    state.wallet.balanceZats -= payment.amountZats;
+  }
   purchase.status = "payment_submitted";
   purchase.approvedAt = now;
   purchase.updatedAt = now;
@@ -94,16 +116,47 @@ export async function POST(
   });
   saveState(state);
 
+  if (config.agent.walletMode === "external-cli") {
+    const minConf = config.verification?.minConfirmations ?? 1;
+    const txInfo = await waitForConfirmation(adapter, payment.txId, minConf, 5, 10_000);
+    if (txInfo.status !== "confirmed") {
+      const updatedState = loadState();
+      const updatedPurchase = updatedState.purchases.find((item) => item.id === id);
+      if (updatedPurchase) {
+        appendActivity(updatedState, {
+          kind: "payment",
+          title: "Transaction pending confirmation",
+          detail: `${payment.txId} has ${txInfo.confirmations} confirmations (need ${minConf}).`,
+          purchaseId: purchase.id
+        });
+        saveState(updatedState);
+      }
+    }
+  }
+
   const vendorResponse = await fetch(`${purchase.vendorUrl.replace(/\/$/, "")}/orders/${purchase.orderId}/verify`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ releasedPii })
+    body: JSON.stringify({ releasedPii, txId: payment.txId })
   });
 
   const updatedState = loadState();
   const updatedPurchase = updatedState.purchases.find((item) => item.id === id);
   if (!updatedPurchase) {
     return NextResponse.json({ error: "Purchase disappeared after payment" }, { status: 500 });
+  }
+
+  if (vendorResponse.status === 202) {
+    updatedPurchase.status = "pending_confirmation";
+    updatedPurchase.updatedAt = new Date().toISOString();
+    appendActivity(updatedState, {
+      kind: "vendor",
+      title: "Payment pending confirmation",
+      detail: "Vendor is waiting for on-chain confirmation.",
+      purchaseId: updatedPurchase.id
+    });
+    saveState(updatedState);
+    return NextResponse.json({ ok: true, purchase: updatedPurchase, confirmationPending: true });
   }
 
   if (!vendorResponse.ok) {

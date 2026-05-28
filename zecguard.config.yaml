@@ -2,6 +2,10 @@ agent:
   name: Research Buyer
   walletMode: mock
   walletAddress: u1zecguarddemoagentwallet000000000000000000000000000000000000000000000000000
+  # walletPreset: zingo-cli
+  # externalCliCommand: "zingo-cli send {to} {amount} {memo}"
+  # externalCliBalanceCommand: "zingo-cli balance"
+  # externalCliTxCheckCommand: "zingo-cli notes"
 
 spending:
   perTransactionZec: "0.05"
@@ -19,6 +23,14 @@ vendors:
 
 privacy:
   showPrivacyLabel: true
+
+verification:
+  mode: mock
+  minConfirmations: 1
+  # mode: external-cli
+  # externalCliCommand: "zingo-cli list-received --memo {memo}"
+  # mode: lightwalletd
+  # lightwalletdUrl: "https://mainnet.lightwalletd.com"
 
 shippingProfiles:
   - id: home

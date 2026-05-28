@@ -1,13 +1,48 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
-import { zatsToZec } from "./money.js";
-import type { PaymentRecord, Purchase, ZecGuardConfig, ZecGuardState } from "./types.js";
+import { zatsToZec, zecToZats } from "./money.js";
+import { loadState } from "./state.js";
+import type {
+  PaymentRecord,
+  Purchase,
+  TransactionInfo,
+  WalletPreset,
+  WalletPresetName,
+  ZecGuardConfig,
+  ZecGuardState
+} from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
+export const WALLET_PRESETS: Record<WalletPresetName, WalletPreset> = {
+  "zingo-cli": {
+    name: "zingo-cli",
+    label: "Zingo CLI",
+    sendCommandTemplate: "zingo-cli send {to} {amount} {memo}",
+    balanceCommand: "zingo-cli balance",
+    transactionCheckCommandTemplate: "zingo-cli notes"
+  },
+  "zcash-cli": {
+    name: "zcash-cli",
+    label: "Zcash CLI (zcashd)",
+    sendCommandTemplate: "zcash-cli z_sendmany \"\" '[{\"address\":\"{to}\",\"amount\":{amount},\"memo\":\"{memoHex}\"}]'",
+    balanceCommand: "zcash-cli z_gettotalbalance",
+    transactionCheckCommandTemplate: "zcash-cli gettransaction {txId}"
+  },
+  zallet: {
+    name: "zallet",
+    label: "Zallet",
+    sendCommandTemplate: "zallet send --to {to} --amount {amount} --memo {memo}",
+    balanceCommand: "zallet balance",
+    transactionCheckCommandTemplate: "zallet tx-status {txId}"
+  }
+};
+
 export interface WalletAdapter {
   sendPayment(purchase: Purchase, state: ZecGuardState, config: ZecGuardConfig): Promise<PaymentRecord>;
+  getBalance(): Promise<number>;
+  checkTransaction(txId: string): Promise<TransactionInfo>;
 }
 
 export class MockWalletAdapter implements WalletAdapter {
@@ -26,20 +61,38 @@ export class MockWalletAdapter implements WalletAdapter {
       walletMode: config.agent.walletMode
     };
   }
+
+  async getBalance(): Promise<number> {
+    return loadState().wallet.balanceZats;
+  }
+
+  async checkTransaction(txId: string): Promise<TransactionInfo> {
+    return { txId, status: "confirmed", confirmations: 100 };
+  }
 }
 
 export class ExternalCliWalletAdapter implements WalletAdapter {
-  async sendPayment(purchase: Purchase, _state: ZecGuardState, config: ZecGuardConfig): Promise<PaymentRecord> {
-    if (!config.agent.externalCliCommand) {
-      throw new Error("externalCliCommand is not configured.");
+  constructor(private readonly config: ZecGuardConfig) {}
+
+  async sendPayment(purchase: Purchase, _state: ZecGuardState, _config: ZecGuardConfig): Promise<PaymentRecord> {
+    const resolved = resolveCliCommands(this.config);
+    if (!resolved.sendCommand) {
+      throw new Error("No send command configured. Set agent.externalCliCommand or agent.walletPreset in zecguard.config.yaml.");
     }
 
-    const { command, args } = buildExternalCliInvocation(config.agent.externalCliCommand, purchase);
-    const { stdout } = await execFileAsync(command, args, { timeout: 120_000 });
-    const txId = stdout.trim().split(/\s+/).at(-1);
+    const { command, args } = buildExternalCliInvocation(resolved.sendCommand, purchase);
 
-    if (!txId) {
-      throw new Error("External wallet command did not return a transaction id.");
+    let stdout: string;
+    try {
+      const result = await execFileAsync(command, args, { timeout: 120_000 });
+      stdout = result.stdout;
+    } catch (err: unknown) {
+      throw parseCliError(err, command);
+    }
+
+    const txId = stdout.trim().split(/\s+/).at(-1);
+    if (!txId || txId.length < 8) {
+      throw new Error(`Wallet command succeeded but returned no valid transaction ID. Output: ${stdout.slice(0, 200)}`);
     }
 
     return {
@@ -52,6 +105,156 @@ export class ExternalCliWalletAdapter implements WalletAdapter {
       walletMode: "external-cli"
     };
   }
+
+  async getBalance(): Promise<number> {
+    const resolved = resolveCliCommands(this.config);
+    if (!resolved.balanceCommand) {
+      throw new Error("No balance command configured. Set agent.externalCliBalanceCommand or agent.walletPreset in zecguard.config.yaml.");
+    }
+
+    const tokens = tokenizeCommand(resolved.balanceCommand);
+    const [command, ...args] = tokens;
+    if (!command) throw new Error("Balance command is empty.");
+
+    let stdout: string;
+    try {
+      const result = await execFileAsync(command, args, { timeout: 30_000 });
+      stdout = result.stdout;
+    } catch (err: unknown) {
+      throw parseCliError(err, command);
+    }
+
+    return parseBalanceOutput(stdout);
+  }
+
+  async checkTransaction(txId: string): Promise<TransactionInfo> {
+    const resolved = resolveCliCommands(this.config);
+    if (!resolved.txCheckCommand) {
+      return { txId, status: "pending", confirmations: 0 };
+    }
+
+    const raw = resolved.txCheckCommand.replaceAll("{txId}", txId);
+    const tokens = tokenizeCommand(raw);
+    const [command, ...args] = tokens;
+    if (!command) return { txId, status: "pending", confirmations: 0 };
+
+    try {
+      const { stdout } = await execFileAsync(command, args, { timeout: 30_000 });
+      return parseTransactionOutput(txId, stdout);
+    } catch {
+      return { txId, status: "not_found", confirmations: 0 };
+    }
+  }
+}
+
+export function resolveCliCommands(config: ZecGuardConfig): {
+  sendCommand: string | undefined;
+  balanceCommand: string | undefined;
+  txCheckCommand: string | undefined;
+} {
+  const preset = config.agent.walletPreset ? WALLET_PRESETS[config.agent.walletPreset] : undefined;
+  return {
+    sendCommand: config.agent.externalCliCommand ?? preset?.sendCommandTemplate,
+    balanceCommand: config.agent.externalCliBalanceCommand ?? preset?.balanceCommand,
+    txCheckCommand: config.agent.externalCliTxCheckCommand ?? preset?.transactionCheckCommandTemplate
+  };
+}
+
+export function parseCliError(err: unknown, command: string): Error {
+  if (!(err instanceof Error)) return new Error(`Wallet command failed: ${String(err)}`);
+
+  const msg = err.message.toLowerCase();
+  const stderr = (err as NodeJS.ErrnoException & { stderr?: string }).stderr?.toLowerCase() ?? "";
+  const combined = `${msg} ${stderr}`;
+
+  if (combined.includes("insufficient") || combined.includes("not enough")) {
+    return new Error(`Insufficient funds in wallet. The wallet "${command}" reported the balance is too low for this payment.`);
+  }
+  if (combined.includes("econnrefused") || combined.includes("connection refused")) {
+    return new Error(`Cannot connect to wallet. Is "${command}" running? Connection was refused.`);
+  }
+  if (combined.includes("enoent") || combined.includes("not found")) {
+    return new Error(`Wallet command "${command}" not found. Is it installed and in your PATH?`);
+  }
+  if (combined.includes("timeout") || combined.includes("etimedout")) {
+    return new Error(`Wallet command "${command}" timed out after 120 seconds. The node may be syncing or unresponsive.`);
+  }
+
+  const exitCode = (err as { code?: number | string }).code;
+  if (exitCode !== undefined) {
+    return new Error(`Wallet command "${command}" exited with code ${exitCode}. ${stderr.slice(0, 300)}`);
+  }
+
+  return new Error(`Wallet command failed: ${err.message}`);
+}
+
+export function parseBalanceOutput(stdout: string): number {
+  const trimmed = stdout.trim();
+
+  if (trimmed.startsWith("{")) {
+    try {
+      const json = JSON.parse(trimmed) as Record<string, string>;
+      const value = json.private ?? json.total ?? json.balance;
+      if (value !== undefined) return zecToZats(value);
+    } catch { /* fall through */ }
+  }
+
+  const match = trimmed.match(/(\d+\.\d{1,8})/);
+  if (match?.[1]) return zecToZats(match[1]);
+
+  throw new Error(`Cannot parse wallet balance from output: ${trimmed.slice(0, 200)}`);
+}
+
+export function parseTransactionOutput(txId: string, stdout: string): TransactionInfo {
+  const trimmed = stdout.trim();
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const obj = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (obj && typeof obj === "object") {
+        const confirmations = Number(obj.confirmations ?? 0);
+        return {
+          txId,
+          status: confirmations > 0 ? "confirmed" : "pending",
+          confirmations,
+          blockHeight: obj.block_height ?? obj.blockheight ?? obj.height
+        };
+      }
+    } catch { /* fall through */ }
+  }
+
+  const confMatch = trimmed.match(/confirmations[:\s]+(\d+)/i);
+  if (confMatch) {
+    const confirmations = Number(confMatch[1]);
+    return {
+      txId,
+      status: confirmations > 0 ? "confirmed" : "pending",
+      confirmations
+    };
+  }
+
+  return { txId, status: trimmed.length > 0 ? "pending" : "not_found", confirmations: 0 };
+}
+
+export async function waitForConfirmation(
+  adapter: WalletAdapter,
+  txId: string,
+  minConfirmations: number,
+  maxAttempts: number,
+  intervalMs: number
+): Promise<TransactionInfo> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const info = await adapter.checkTransaction(txId);
+    if (info.confirmations >= minConfirmations) {
+      return { ...info, status: "confirmed" };
+    }
+    if (info.status === "not_found") return info;
+    if (i < maxAttempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+  }
+  return { txId, status: "pending", confirmations: 0 };
 }
 
 export function buildExternalCliInvocation(
@@ -69,7 +272,8 @@ export function buildExternalCliInvocation(
   const replacements: Record<string, string> = {
     "{to}": purchase.payTo,
     "{amount}": amount,
-    "{memo}": purchase.memo
+    "{memo}": purchase.memo,
+    "{memoHex}": Buffer.from(purchase.memo, "utf8").toString("hex")
   };
   const hasPlaceholders = baseArgs.some((arg) => Object.keys(replacements).some((key) => arg.includes(key)));
 
@@ -121,7 +325,7 @@ function tokenizeCommand(command: string): string[] {
 
 export function createWalletAdapter(config: ZecGuardConfig): WalletAdapter {
   if (config.agent.walletMode === "external-cli") {
-    return new ExternalCliWalletAdapter();
+    return new ExternalCliWalletAdapter(config);
   }
   return new MockWalletAdapter();
 }

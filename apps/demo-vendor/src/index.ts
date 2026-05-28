@@ -3,7 +3,9 @@ import cors from "cors";
 import { randomUUID } from "node:crypto";
 import {
   appendActivity,
+  createPaymentVerifier,
   findMatchingLedgerPayment,
+  loadConfig,
   loadState,
   quoteRequestSchema,
   signReceipt,
@@ -240,14 +242,26 @@ app.post("/orders", (request, response) => {
 app.post("/orders/:orderId/verify", async (request, response) => {
   const releasedPii = request.body?.releasedPii as Record<string, unknown> | undefined;
   const state = loadState();
+  const config = loadConfig();
   const order = state.vendorOrders.find((item) => item.orderId === request.params.orderId);
   if (!order) {
     response.status(404).json({ error: "Order not found" });
     return;
   }
 
-  const payment = findMatchingLedgerPayment(state, order);
-  if (!payment) {
+  const verifier = createPaymentVerifier(config);
+  const verified = await verifier.verifyPayment(order);
+
+  if (!verified) {
+    const ledgerEntry = findMatchingLedgerPayment(state, order);
+    if (ledgerEntry) {
+      response.status(202).json({
+        status: "pending_confirmation",
+        message: "Payment found but awaiting on-chain confirmation.",
+        txId: ledgerEntry.txId
+      });
+      return;
+    }
     response.status(402).json({ error: "No matching ZEC payment found for this order" });
     return;
   }
@@ -261,7 +275,7 @@ app.post("/orders/:orderId/verify", async (request, response) => {
     quoteId: order.quote.quoteId,
     vendorUrl: order.quote.vendorUrl,
     amountZec: order.quote.amountZec,
-    txId: payment.txId,
+    txId: verified.txId,
     fulfilledAt,
     summary: fulfillment.summary
   });
@@ -270,9 +284,9 @@ app.post("/orders/:orderId/verify", async (request, response) => {
     const existing = draft.vendorOrders.find((item) => item.orderId === order.orderId);
     if (!existing) return;
     existing.status = "fulfilled";
-    existing.payment = payment;
+    existing.payment = { txId: verified.txId, amountZec: verified.amountZec, amountZats: zecToZats(verified.amountZec), payTo: order.quote.payTo, memo: verified.memo, submittedAt: verified.matchedAt, walletMode: config.agent.walletMode };
     existing.releasedPii = releasedPii ?? existing.releasedPii;
-    existing.paidAt = payment.submittedAt;
+    existing.paidAt = verified.matchedAt;
     existing.fulfilledAt = fulfilledAt;
     existing.fulfillment = fulfillment;
     existing.receipt = receipt;
