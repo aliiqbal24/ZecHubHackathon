@@ -16,26 +16,26 @@ import type {
 const execFileAsync = promisify(execFile);
 
 export const WALLET_PRESETS: Record<WalletPresetName, WalletPreset> = {
+  zodl: {
+    name: "zodl",
+    label: "Zodl (Zallet RPC)",
+    sendCommandTemplate: "zallet rpc z_sendmany 'null' '[{\"address\":\"{to}\",\"amount\":{amount},\"memo\":\"{memoHex}\"}]'",
+    balanceCommand: "zallet rpc z_gettotalbalance",
+    transactionCheckCommandTemplate: "zallet rpc gettransaction '\"{txId}\"'"
+  },
   "zingo-cli": {
     name: "zingo-cli",
     label: "Zingo CLI",
-    sendCommandTemplate: "zingo-cli send {to} {amount} {memo}",
+    sendCommandTemplate: "zingo-cli send '[{\"address\":\"{to}\",\"amount\":{amount},\"memo\":\"{memo}\"}]'",
     balanceCommand: "zingo-cli balance",
     transactionCheckCommandTemplate: "zingo-cli notes"
   },
-  "zcash-cli": {
-    name: "zcash-cli",
-    label: "Zcash CLI (zcashd)",
-    sendCommandTemplate: "zcash-cli z_sendmany \"\" '[{\"address\":\"{to}\",\"amount\":{amount},\"memo\":\"{memoHex}\"}]'",
-    balanceCommand: "zcash-cli z_gettotalbalance",
-    transactionCheckCommandTemplate: "zcash-cli gettransaction {txId}"
-  },
   zallet: {
     name: "zallet",
-    label: "Zallet",
-    sendCommandTemplate: "zallet send --to {to} --amount {amount} --memo {memo}",
-    balanceCommand: "zallet balance",
-    transactionCheckCommandTemplate: "zallet tx-status {txId}"
+    label: "Zallet CLI",
+    sendCommandTemplate: "zallet rpc z_sendmany 'null' '[{\"address\":\"{to}\",\"amount\":{amount},\"memo\":\"{memoHex}\"}]'",
+    balanceCommand: "zallet rpc z_gettotalbalance",
+    transactionCheckCommandTemplate: "zallet rpc gettransaction '\"{txId}\"'"
   }
 };
 

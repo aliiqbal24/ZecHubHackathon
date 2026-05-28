@@ -63,6 +63,14 @@ describe("external wallet invocation", () => {
 });
 
 describe("wallet presets", () => {
+  it("resolves zodl preset commands via zallet rpc", () => {
+    const config = makeConfig({ walletPreset: "zodl" });
+    const resolved = resolveCliCommands(config);
+    expect(resolved.sendCommand).toContain("zallet rpc z_sendmany");
+    expect(resolved.balanceCommand).toBe("zallet rpc z_gettotalbalance");
+    expect(resolved.txCheckCommand).toContain("zallet rpc gettransaction");
+  });
+
   it("resolves zingo-cli preset commands", () => {
     const config = makeConfig({ walletPreset: "zingo-cli" });
     const resolved = resolveCliCommands(config);
@@ -71,18 +79,11 @@ describe("wallet presets", () => {
     expect(resolved.txCheckCommand).toContain("zingo-cli");
   });
 
-  it("resolves zcash-cli preset commands", () => {
-    const config = makeConfig({ walletPreset: "zcash-cli" });
-    const resolved = resolveCliCommands(config);
-    expect(resolved.sendCommand).toContain("zcash-cli");
-    expect(resolved.balanceCommand).toBe("zcash-cli z_gettotalbalance");
-  });
-
   it("resolves zallet preset commands", () => {
     const config = makeConfig({ walletPreset: "zallet" });
     const resolved = resolveCliCommands(config);
-    expect(resolved.sendCommand).toContain("zallet send");
-    expect(resolved.balanceCommand).toBe("zallet balance");
+    expect(resolved.sendCommand).toContain("zallet rpc z_sendmany");
+    expect(resolved.balanceCommand).toBe("zallet rpc z_gettotalbalance");
   });
 
   it("explicit command overrides preset", () => {
@@ -104,7 +105,7 @@ describe("wallet presets", () => {
   });
 
   it("all presets are defined", () => {
-    expect(Object.keys(WALLET_PRESETS)).toEqual(["zingo-cli", "zcash-cli", "zallet"]);
+    expect(Object.keys(WALLET_PRESETS)).toEqual(["zodl", "zingo-cli", "zallet"]);
   });
 });
 

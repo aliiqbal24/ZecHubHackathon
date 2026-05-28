@@ -2,10 +2,9 @@ agent:
   name: Research Buyer
   walletMode: mock
   walletAddress: u1zecguarddemoagentwallet000000000000000000000000000000000000000000000000000
+  # walletPreset: zodl
   # walletPreset: zingo-cli
-  # externalCliCommand: "zingo-cli send {to} {amount} {memo}"
-  # externalCliBalanceCommand: "zingo-cli balance"
-  # externalCliTxCheckCommand: "zingo-cli notes"
+  # walletPreset: zallet
 
 spending:
   perTransactionZec: "0.05"

@@ -24,7 +24,7 @@ export interface TransactionInfo {
   blockHeight?: number;
 }
 
-export type WalletPresetName = "zingo-cli" | "zcash-cli" | "zallet";
+export type WalletPresetName = "zodl" | "zingo-cli" | "zallet";
 
 export interface WalletPreset {
   name: WalletPresetName;
