@@ -1,0 +1,32 @@
+agent:
+  name: Research Buyer
+  walletMode: mock
+  walletAddress: u1zecguarddemoagentwallet000000000000000000000000000000000000000000000000000
+
+spending:
+  perTransactionZec: "0.05"
+  dailyZec: "0.15"
+  monthlyZec: "1.00"
+
+approval:
+  requireEveryPayment: true
+  allowOneTimeOverride: true
+
+vendors:
+  allowUnknownVendors: true
+  trusted:
+    - http://localhost:3020
+
+privacy:
+  showPrivacyLabel: true
+
+shippingProfiles:
+  - id: home
+    label: Home profile
+    name: Ada Demo
+    line1: 123 Orchard Lane
+    city: Denver
+    region: CO
+    postalCode: "80202"
+    country: US
+    email: ada@example.test
