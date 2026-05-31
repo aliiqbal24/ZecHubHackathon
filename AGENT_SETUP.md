@@ -32,11 +32,32 @@ Tools:
 
 - `discover_zec_vendor`
 - `request_quote`
-- `prepare_purchase`
+- `prepare_zec_payment`
+- `review_purchase`
+- `approve_and_pay_purchase`
 - `claim_fulfillment`
 - `get_zecguard_state`
 
-Approval is intentionally not exposed as an autonomous MCP tool. The agent can request and prepare a purchase; the dashboard user approves payment.
+`approve_and_pay_purchase` is destructive, non-idempotent, and can submit real ZEC when `walletMode` is `external-cli`. Do not configure your MCP client to auto-approve this tool. Inline approval relies on the agent client's normal permission prompt plus an explicit user confirmation in chat; the dashboard approval screen remains the safer fallback.
+
+## Client Setup
+
+Claude Code:
+
+```bash
+claude mcp add zecguard -- npm run mcp:stdio
+```
+
+Codex MCP config:
+
+```toml
+[mcp_servers.zecguard]
+command = "npm"
+args = ["run", "mcp:stdio"]
+cwd = "C:\\SWE_Projects\\ZecHubEz"
+```
+
+Keep MCP tool approval prompts enabled, especially for `approve_and_pay_purchase`.
 
 ## HTTP Tool Calls
 
@@ -56,10 +77,40 @@ curl -X POST http://localhost:3010/mcp/call ^
 
 Then open the dashboard and approve the purchase.
 
+Prepare a generic ZIP-321/raw ZEC payment:
+
+```bash
+curl -X POST http://localhost:3010/mcp/call ^
+  -H "content-type: application/json" ^
+  -d "{\"name\":\"prepare_zec_payment\",\"args\":{\"paymentUri\":\"zcash:u1recipient0000000000000000000000000000000000000000?amount=0.003&memo=invoice-123\",\"recipientLabel\":\"Report vendor\"}}"
+```
+
+Review the exact spend before approval:
+
+```bash
+curl -X POST http://localhost:3010/mcp/call ^
+  -H "content-type: application/json" ^
+  -d "{\"name\":\"review_purchase\",\"args\":{\"purchaseId\":\"p_...\"}}"
+```
+
+Submit payment only after explicit user approval:
+
+```bash
+curl -X POST http://localhost:3010/mcp/call ^
+  -H "content-type: application/json" ^
+  -d "{\"name\":\"approve_and_pay_purchase\",\"args\":{\"purchaseId\":\"p_...\"}}"
+```
+
 ## Agent Prompt
 
 Use this instruction with an agent connected to ZecGuard:
 
 ```text
 You can request ZEC purchases through ZecGuard, but you may not approve payment. Before requesting a quote, identify the vendor, item, expected amount, fulfillment type, privacy disclosure, and any PII required. After ZecGuard creates a purchase, tell the user to review the dashboard approval screen.
+```
+
+For inline MCP approval, use this stricter instruction:
+
+```text
+You may prepare and review ZEC payments through ZecGuard. Before calling approve_and_pay_purchase, show the exact ZEC amount, recipient address, memo, expiry, policy result, and whether fulfillment is automatic or only a local receipt. Call approve_and_pay_purchase only after I explicitly confirm the payment in chat and the MCP client permission prompt is shown.
 ```

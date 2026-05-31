@@ -8,3 +8,4 @@ export * from "./receipt.js";
 export * from "./wallet.js";
 export * from "./harness.js";
 export * from "./verification.js";
+export * from "./payment.js";
