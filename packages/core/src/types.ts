@@ -205,6 +205,17 @@ export interface PrivateReceipt {
   signature: string;
 }
 
+export interface LocalPaymentReceipt {
+  receiptId: string;
+  purchaseId: string;
+  amountZec: string;
+  payTo: string;
+  memo: string;
+  txId: string;
+  paidAt: string;
+  summary: string;
+}
+
 export interface Fulfillment {
   type: FulfillmentType;
   summary: string;
@@ -226,6 +237,7 @@ export interface PolicyResult {
 
 export interface Purchase {
   id: string;
+  source?: "harness" | "generic";
   status: PurchaseStatus;
   createdAt: string;
   updatedAt: string;
@@ -252,6 +264,7 @@ export interface Purchase {
   payment?: PaymentRecord;
   fulfillment?: Fulfillment;
   receipt?: PrivateReceipt;
+  localReceipt?: LocalPaymentReceipt;
 }
 
 export interface ActivityEvent {

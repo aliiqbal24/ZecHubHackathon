@@ -30,6 +30,9 @@ server.registerTool(
   {
     title: "Discover ZEC Vendor",
     description: "Read a vendor's ZEC Harness manifest and products.",
+    annotations: {
+      readOnlyHint: true
+    },
     inputSchema: {
       url: z.string().url()
     }
@@ -42,6 +45,10 @@ server.registerTool(
   {
     title: "Request ZEC Quote",
     description: "Request a quote and create a dashboard approval request.",
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: false
+    },
     inputSchema: {
       vendorUrl: z.string().url(),
       itemId: z.string(),
@@ -53,15 +60,61 @@ server.registerTool(
 );
 
 server.registerTool(
-  "prepare_purchase",
+  "prepare_zec_payment",
   {
-    title: "Prepare Purchase",
-    description: "Refresh policy checks for a pending purchase.",
+    title: "Prepare Generic ZEC Payment",
+    description: "Prepare a generic ZEC payment from a ZIP-321 URI or raw address, amount, and memo.",
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: false
+    },
+    inputSchema: {
+      paymentUri: z.string().optional(),
+      address: z.string().optional(),
+      amountZec: z.string().optional(),
+      memo: z.string().optional(),
+      recipientLabel: z.string().optional(),
+      expiresAt: z.string().optional()
+    }
+  },
+  async ({ paymentUri, address, amountZec, memo, recipientLabel, expiresAt }) =>
+    textResult(await callTool("prepare_zec_payment", { paymentUri, address, amountZec, memo, recipientLabel, expiresAt }))
+);
+
+server.registerTool(
+  "review_purchase",
+  {
+    title: "Review Purchase",
+    description: "Review exact amount, recipient, memo, policy checks, privacy/PII, expiry, and approval wording.",
+    annotations: {
+      readOnlyHint: false
+    },
     inputSchema: {
       purchaseId: z.string()
     }
   },
-  async ({ purchaseId }) => textResult(await callTool("prepare_purchase", { purchaseId }))
+  async ({ purchaseId }) => textResult(await callTool("review_purchase", { purchaseId }))
+);
+
+server.registerTool(
+  "approve_and_pay_purchase",
+  {
+    title: "Approve And Pay Purchase",
+    description: "Submit the ZEC payment after explicit user approval. Destructive, non-idempotent, and open-world.",
+    annotations: {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true
+    },
+    inputSchema: {
+      purchaseId: z.string(),
+      overrideReason: z.string().optional(),
+      profileId: z.string().optional()
+    }
+  },
+  async ({ purchaseId, overrideReason, profileId }) =>
+    textResult(await callTool("approve_and_pay_purchase", { purchaseId, overrideReason, profileId }))
 );
 
 server.registerTool(
@@ -69,6 +122,10 @@ server.registerTool(
   {
     title: "Claim Fulfillment",
     description: "Check vendor fulfillment and store the private receipt.",
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: true
+    },
     inputSchema: {
       purchaseId: z.string()
     }
@@ -81,6 +138,9 @@ server.registerTool(
   {
     title: "Get ZecGuard State",
     description: "Inspect purchases, wallet state, activity, and receipts.",
+    annotations: {
+      readOnlyHint: true
+    },
     inputSchema: {}
   },
   async () => textResult(await callTool("get_zecguard_state", {}))

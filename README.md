@@ -1,12 +1,13 @@
 # ZecGuard
 
-ZecGuard is a local prototype for private, policy-governed AI agent purchases over Zcash. An agent can request a purchase from any vendor that exposes a ZEC Harness, but ZecGuard checks policy, shows the exact spend and conditions, requires human approval, sends payment through a wallet adapter, and stores a signed private receipt.
+ZecGuard is a local prototype for private, policy-governed AI agent purchases over Zcash. An agent can request a purchase from a vendor that exposes a ZEC Harness, or prepare a generic ZIP-321/raw ZEC payment like a wallet send. ZecGuard checks policy, shows the exact spend and conditions, requires human approval, sends payment through a wallet adapter, and stores either a signed vendor receipt or a local payment receipt.
 
 ## What Is Implemented
 
 - Local web dashboard at `http://localhost:3000`
 - MCP-capable agent server with HTTP tools on `http://localhost:3010`
 - Reference ZEC Harness vendor on `http://localhost:3020`
+- Generic ZEC payment preparation from ZIP-321 URIs or raw address/amount/memo inputs
 - Shared TypeScript protocol, policy engine, state machine, mock wallet, and receipt signing
 - Natural-language purchase request flow
 - Digital-service and physical-goods demo purchases
@@ -63,11 +64,19 @@ Available tools:
 
 - `discover_zec_vendor`
 - `request_quote`
-- `prepare_purchase`
+- `prepare_zec_payment`
+- `review_purchase`
+- `approve_and_pay_purchase`
 - `claim_fulfillment`
 - `get_zecguard_state`
 
-The dashboard approval endpoint is intentionally not exposed as an autonomous MCP tool. Agents can prepare payment intents; humans approve payments.
+`approve_and_pay_purchase` is marked destructive, non-idempotent, and open-world in MCP metadata. Agents should call it only after explicit user approval; MCP clients should keep their permission prompt enabled for that tool. Dashboard approval remains available as the safer fallback.
+
+## Payment Tiers
+
+Tier 1 ZEC Harness vendors support quote, order reservation, policy review, payment submission, vendor verification, fulfillment, and signed private receipts.
+
+Tier 2 generic ZEC payments support "pay this ZEC address/payment URI" flows. ZecGuard can parse a ZIP-321 URI or raw address/amount/memo, run spending and memo policy checks, submit payment after approval, and store a local receipt. Automatic fulfillment is not available unless the recipient exposes a compatible verification API.
 
 ## ZEC Harness Vendor Contract
 
