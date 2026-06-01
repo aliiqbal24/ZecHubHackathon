@@ -16,41 +16,26 @@ function makeConfig(verification: Partial<ZecGuardConfig["verification"]> = {}):
 }
 
 describe("createPaymentVerifier", () => {
-  it("returns MockPaymentVerifier for mock mode", () => {
-    const verifier = createPaymentVerifier(makeConfig({ mode: "mock" }));
-    expect(verifier).toBeInstanceOf(MockPaymentVerifier);
-  });
+  it("creates a verifier for each valid mode", () => {
+    expect(createPaymentVerifier(makeConfig({ mode: "mock" }))).toBeInstanceOf(MockPaymentVerifier);
+    expect(
+      createPaymentVerifier(makeConfig({ mode: "external-cli", externalCliCommand: "zingo-cli notes" }))
+    ).toBeDefined();
+    expect(
+      createPaymentVerifier(makeConfig({ mode: "lightwalletd", lightwalletdUrl: "https://mainnet.lightwalletd.com" }))
+    ).toBeDefined();
 
-  it("defaults to mock when no verification config", () => {
     const config = makeConfig();
     delete config.verification;
-    const verifier = createPaymentVerifier(config);
-    expect(verifier).toBeInstanceOf(MockPaymentVerifier);
+    expect(createPaymentVerifier(config)).toBeInstanceOf(MockPaymentVerifier);
   });
 
-  it("throws when external-cli mode has no command", () => {
-    expect(() =>
-      createPaymentVerifier(makeConfig({ mode: "external-cli" }))
-    ).toThrow("externalCliCommand is required");
-  });
-
-  it("creates ExternalCliVerifier with command", () => {
-    const verifier = createPaymentVerifier(
-      makeConfig({ mode: "external-cli", externalCliCommand: "zingo-cli list-received --memo {memo}" })
-    );
-    expect(verifier).toBeDefined();
-  });
-
-  it("throws when lightwalletd mode has no URL", () => {
-    expect(() =>
-      createPaymentVerifier(makeConfig({ mode: "lightwalletd" }))
-    ).toThrow("lightwalletdUrl is required");
-  });
-
-  it("creates LightwalletVerifier with URL", () => {
-    const verifier = createPaymentVerifier(
-      makeConfig({ mode: "lightwalletd", lightwalletdUrl: "https://mainnet.lightwalletd.com" })
-    );
-    expect(verifier).toBeDefined();
+  it("rejects modes missing required connection settings", () => {
+    for (const { verification, message } of [
+      { verification: { mode: "external-cli" as const }, message: "externalCliCommand is required" },
+      { verification: { mode: "lightwalletd" as const }, message: "lightwalletdUrl is required" }
+    ]) {
+      expect(() => createPaymentVerifier(makeConfig(verification))).toThrow(message);
+    }
   });
 });
