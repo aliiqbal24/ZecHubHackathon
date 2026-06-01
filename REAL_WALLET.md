@@ -1,32 +1,43 @@
 # Real Wallet Integration
 
-The current prototype defaults to a mock wallet so the full user flow works without local Zcash infrastructure. Real sending is isolated behind the external CLI adapter in `packages/core/src/wallet.ts`.
+The prototype defaults to a mock wallet so the full user flow works without local Zcash infrastructure. Real agent spending is isolated behind a dedicated Zingo CLI wallet in `packages/core/src/wallet.ts`.
 
-## Configure External CLI Mode
+Each agent wallet lives under `.zecguard/wallets/<walletId>`. Agents never receive keys or direct wallet filesystem access; they request payments through MCP, and ZecGuard sends only after policy checks and user approval.
 
-Edit `zecguard.config.yaml`:
+## Configure Zingo CLI Mode
+
+Install `zingo-cli`, then edit `zecguard.config.yaml`:
 
 ```yaml
 agent:
   name: Research Buyer
-  walletMode: external-cli
+  walletMode: mock
   walletAddress: u1...
-  externalCliCommand: "zingo-cli send --recipient {to} --value {amount} --memo {memo}"
+
+agentWallet:
+  backend: zingo-cli
+  label: Research Buyer Wallet
+  walletId: agent-default
+  zingoCliPath: zingo-cli
+  zingoServerUrl:
+  mainReturnAddress: u1...
 ```
 
-Placeholders:
-
-- `{to}`: vendor payment address
-- `{amount}`: decimal ZEC amount
-- `{memo}`: ZEC Harness memo
-
-If no placeholders are present, ZecGuard appends:
+When the dashboard refreshes, ZecGuard runs commands like:
 
 ```text
---to <address> --amount <zec> --memo <memo>
+zingo-cli --data-dir .zecguard/wallets/agent-default [--server <url>] [--waitsync] <command>
 ```
 
-The CLI command must print a transaction id as the last whitespace-separated token on stdout.
+The dashboard shows the deposit address, total balance, spendable balance, and setup errors. Funding is manual in v1: send a small amount of ZEC to the displayed agent wallet address, then approve purchases normally.
+
+## Returning Funds
+
+Set `agentWallet.mainReturnAddress` to enable the dashboard-only sweep action. Sweep is intentionally not exposed as an MCP tool. ZecGuard reserves a small fee and sends the remaining spendable balance back to the configured return address.
+
+## Legacy External CLI Mode
+
+The older `agent.walletMode: external-cli` adapter remains for compatibility, but new real-wallet work should use `agentWallet.backend: zingo-cli`.
 
 ## Vendor Payment Detection
 
@@ -48,4 +59,4 @@ These tools are not installed in the current environment:
 - `zingo-cli`
 - `zallet`
 
-Because of that, the prototype cannot submit a real mainnet shielded transaction here yet. The app is ready for that integration once one wallet backend is installed and funded.
+Because of that, the prototype cannot submit a real mainnet shielded transaction here yet. The mock backend remains available for demos and CI.

@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { appendActivity, loadState, recordPayment, saveState } from "./state.js";
-import { createWalletAdapter, waitForConfirmation } from "./wallet.js";
+import { appendActivity, loadState, recordPayment, refreshWalletBalance, saveState } from "./state.js";
+import { createAgentWalletAdapter, createWalletAdapter, waitForConfirmation } from "./wallet.js";
 import { canApprovePurchase, evaluateGenericPaymentPolicy, evaluateQuotePolicy } from "./policy.js";
 import { verifyReceipt } from "./receipt.js";
 import { zecToZats, zatsToZec } from "./money.js";
 import type { LocalPaymentReceipt, Purchase, ShippingProfile, ZecGuardConfig } from "./types.js";
+
+const REAL_WALLET_BALANCE_MAX_AGE_MS = 5 * 60_000;
 
 export interface ApproveAndPayOptions {
   purchaseId: string;
@@ -19,6 +21,11 @@ export interface ApproveAndPayResult {
   payment: NonNullable<Purchase["payment"]>;
   confirmationPending?: boolean;
   localReceipt?: LocalPaymentReceipt;
+}
+
+export interface SweepAgentWalletResult {
+  ok: true;
+  payment: NonNullable<Purchase["payment"]>;
 }
 
 function selectReleasedPii(purchase: Purchase, profile?: ShippingProfile): Record<string, unknown> | undefined {
@@ -104,24 +111,24 @@ export async function approveAndPayPurchase(
     throw new Error("Blocked purchases need a configured one-time override and an override reason.");
   }
 
-  const adapter = createWalletAdapter(config);
-  if (config.agent.walletMode === "external-cli") {
-    const liveBalance = await adapter.getBalance();
-    if (liveBalance < purchase.amountZats) {
-      throw new Error(`Insufficient wallet balance: ${zatsToZec(liveBalance)} ZEC available, ${purchase.amountZec} ZEC needed.`);
-    }
-  } else if (state.wallet.balanceZats < purchase.amountZats) {
-    throw new Error(`Insufficient mock wallet balance: ${zatsToZec(state.wallet.balanceZats)} ZEC available, ${purchase.amountZec} ZEC needed.`);
+  const agentWalletAdapter = createAgentWalletAdapter(config);
+  if (config.agentWallet.backend === "zingo-cli") {
+    await refreshWalletBalance(state, config);
+    assertAgentWalletReady(state, purchase.amountZats);
+  } else if (state.agentWallet.spendableZats < purchase.amountZats) {
+    throw new Error(`Insufficient mock wallet balance: ${zatsToZec(state.agentWallet.spendableZats)} ZEC available, ${purchase.amountZec} ZEC needed.`);
   }
 
   const profile =
     config.shippingProfiles.find((item) => item.id === options.profileId) ?? config.shippingProfiles[0];
   const releasedPii = selectReleasedPii(purchase, profile);
-  const payment = await adapter.sendPayment(purchase, state, config);
+  const payment = await agentWalletAdapter.sendPayment(purchase, state, config);
   const now = new Date().toISOString();
 
-  if (config.agent.walletMode === "mock") {
-    state.wallet.balanceZats -= payment.amountZats;
+  if (config.agentWallet.backend === "mock") {
+    state.agentWallet.balanceZats -= payment.amountZats;
+    state.agentWallet.spendableZats -= payment.amountZats;
+    state.agentWallet.balanceUpdatedAt = now;
   }
   purchase.status = "payment_submitted";
   purchase.approvedAt = now;
@@ -174,6 +181,7 @@ export async function approveAndPayPurchase(
   saveState(state);
 
   if (config.agent.walletMode === "external-cli") {
+    const adapter = createWalletAdapter(config);
     const minConf = config.verification?.minConfirmations ?? 1;
     const txInfo = await waitForConfirmation(adapter, payment.txId, minConf, 5, 10_000);
     if (txInfo.status !== "confirmed") {
@@ -249,6 +257,54 @@ export async function approveAndPayPurchase(
   saveState(updatedState);
 
   return { ok: true, purchase: updatedPurchase, payment };
+}
+
+export async function sweepAgentWallet(config: ZecGuardConfig): Promise<SweepAgentWalletResult> {
+  const state = loadState();
+  const mainReturnAddress = config.agentWallet.mainReturnAddress;
+  if (!mainReturnAddress) {
+    throw new Error("No mainReturnAddress configured for agent wallet sweep.");
+  }
+
+  const adapter = createAgentWalletAdapter(config);
+  if (config.agentWallet.backend === "zingo-cli") {
+    await refreshWalletBalance(state, config);
+    if (state.agentWallet.status !== "ready") {
+      throw new Error(`Agent wallet is not ready for sweep (${state.agentWallet.status}).`);
+    }
+  }
+
+  const payment = await adapter.sweepToMain(state, mainReturnAddress);
+  const now = new Date().toISOString();
+  state.agentWallet.balanceZats = Math.max(0, state.agentWallet.balanceZats - payment.amountZats);
+  state.agentWallet.spendableZats = Math.max(0, state.agentWallet.spendableZats - payment.amountZats);
+  state.agentWallet.balanceUpdatedAt = now;
+  state.agentWallet.status = state.agentWallet.spendableZats > 0 ? "ready" : "waiting_for_funding";
+  state.agentWallet.lastError = undefined;
+  appendActivity(state, {
+    kind: "payment",
+    title: "Agent wallet swept",
+    detail: `${payment.amountZec} ZEC returned to main wallet.`
+  });
+  saveState(state);
+  return { ok: true, payment };
+}
+
+function assertAgentWalletReady(state: ReturnType<typeof loadState>, amountZats: number): void {
+  if (!state.agentWallet.depositAddress) {
+    throw new Error("Agent wallet has not been created yet.");
+  }
+  if (state.agentWallet.status !== "ready") {
+    const detail = state.agentWallet.lastError ? ` ${state.agentWallet.lastError}` : "";
+    throw new Error(`Agent wallet is not ready (${state.agentWallet.status}).${detail}`);
+  }
+  const updatedAt = state.agentWallet.balanceUpdatedAt ? new Date(state.agentWallet.balanceUpdatedAt).getTime() : 0;
+  if (!updatedAt || Date.now() - updatedAt > REAL_WALLET_BALANCE_MAX_AGE_MS) {
+    throw new Error("Agent wallet balance is stale or unavailable. Refresh the wallet before approving payment.");
+  }
+  if (state.agentWallet.spendableZats < amountZats) {
+    throw new Error(`Insufficient agent wallet balance: ${zatsToZec(state.agentWallet.spendableZats)} ZEC spendable, ${zatsToZec(amountZats)} ZEC needed.`);
+  }
 }
 
 export function makeLocalPaymentPurchase(args: {

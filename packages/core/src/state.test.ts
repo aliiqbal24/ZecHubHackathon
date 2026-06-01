@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findMatchingLedgerPayment, recordPayment } from "./state.js";
+import { findMatchingLedgerPayment, normalizeState, recordPayment } from "./state.js";
 import { zecToZats } from "./money.js";
 import type { VendorOrder, ZecGuardState } from "./types.js";
 
@@ -27,6 +27,17 @@ describe("payment ledger", () => {
       createdAt: new Date().toISOString()
     };
     const state: ZecGuardState = {
+      agentWallet: {
+        id: "agent-default",
+        label: "Test Wallet",
+        backend: "mock",
+        status: "ready",
+        dataDir: ".zecguard/wallets/agent-default",
+        depositAddress: "u1agent",
+        balanceZats: zecToZats("0.25"),
+        spendableZats: zecToZats("0.25"),
+        createdAt: new Date().toISOString()
+      },
       wallet: {
         mode: "mock",
         address: "u1agent",
@@ -54,5 +65,28 @@ describe("payment ledger", () => {
     });
 
     expect(findMatchingLedgerPayment(state, order)?.txId).toBe("mock-zec-123");
+  });
+
+  it("migrates legacy wallet state into agentWallet", () => {
+    const normalized = normalizeState({
+      wallet: {
+        mode: "mock",
+        address: "u1legacyagent",
+        balanceZats: zecToZats("0.12"),
+        spentTodayZats: 0,
+        spentMonthZats: 0,
+        balanceSource: "mock",
+        balanceUpdatedAt: "2026-01-01T00:00:00.000Z"
+      },
+      purchases: [],
+      activity: [],
+      vendorOrders: [],
+      paymentLedger: []
+    });
+
+    expect(normalized.agentWallet.backend).toBe("mock");
+    expect(normalized.agentWallet.depositAddress).toBe("u1legacyagent");
+    expect(normalized.agentWallet.balanceZats).toBe(zecToZats("0.12"));
+    expect(normalized.wallet.address).toBe("u1legacyagent");
   });
 });

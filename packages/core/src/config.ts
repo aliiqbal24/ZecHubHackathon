@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
-import { WALLET_PRESETS } from "./wallet.js";
+import { zecGuardConfigSchema } from "./schemas.js";
 import type { ZecGuardConfig } from "./types.js";
 
 export function findWorkspaceRoot(start = process.cwd()): string {
@@ -35,22 +35,35 @@ export function loadConfig(): ZecGuardConfig {
     throw new Error(`Missing ZecGuard config at ${configPath}`);
   }
 
-  const raw = YAML.parse(fs.readFileSync(configPath, "utf8")) as ZecGuardConfig;
-
-  if (!raw.verification) {
-    raw.verification = { mode: "mock", minConfirmations: 1 };
-  }
-  raw.verification.minConfirmations ??= 1;
-
-  if (raw.agent.walletPreset && !WALLET_PRESETS[raw.agent.walletPreset]) {
-    throw new Error(
-      `Unknown walletPreset "${raw.agent.walletPreset}". Valid presets: ${Object.keys(WALLET_PRESETS).join(", ")}`
-    );
-  }
-
-  return raw;
+  return parseConfig(YAML.parse(fs.readFileSync(configPath, "utf8")));
 }
 
 export function readConfigText(): string {
   return fs.readFileSync(getConfigPath(), "utf8");
+}
+
+export function writeConfig(config: ZecGuardConfig): ZecGuardConfig {
+  const parsed = parseConfig(config);
+  const configPath = getConfigPath();
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, YAML.stringify(stripUndefined(parsed)), "utf8");
+  return parsed;
+}
+
+export function parseConfig(config: unknown): ZecGuardConfig {
+  return zecGuardConfigSchema.parse(config);
+}
+
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, item]) => item !== undefined)
+        .map(([key, item]) => [key, stripUndefined(item)])
+    ) as T;
+  }
+  return value;
 }

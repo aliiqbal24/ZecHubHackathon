@@ -67,6 +67,17 @@ export interface AgentConfig {
   walletPreset?: WalletPresetName;
 }
 
+export type AgentWalletBackend = "mock" | "zingo-cli";
+
+export interface AgentWalletConfig {
+  backend: AgentWalletBackend;
+  label?: string;
+  walletId?: string;
+  zingoCliPath?: string;
+  zingoServerUrl?: string;
+  mainReturnAddress?: string;
+}
+
 export interface SpendingConfig {
   perTransactionZec: string;
   dailyZec: string;
@@ -103,6 +114,7 @@ export interface ShippingProfile {
 
 export interface ZecGuardConfig {
   agent: AgentConfig;
+  agentWallet: AgentWalletConfig;
   spending: SpendingConfig;
   approval: ApprovalConfig;
   vendors: VendorConfig;
@@ -183,7 +195,7 @@ export interface PaymentRecord {
   payTo: string;
   memo: string;
   submittedAt: string;
-  walletMode: "mock" | "external-cli";
+  walletMode: "mock" | "external-cli" | "zingo-cli";
 }
 
 export interface PaymentLedgerEntry extends PaymentRecord {
@@ -294,6 +306,28 @@ export interface WalletState {
   balanceUpdatedAt?: string;
 }
 
+export type AgentWalletStatus =
+  | "not_created"
+  | "zingo_missing"
+  | "waiting_for_funding"
+  | "ready"
+  | "error";
+
+export interface AgentWalletState {
+  id: string;
+  label: string;
+  backend: AgentWalletBackend;
+  status: AgentWalletStatus;
+  dataDir: string;
+  depositAddress?: string;
+  mainReturnAddress?: string;
+  balanceZats: number;
+  spendableZats: number;
+  balanceUpdatedAt?: string;
+  createdAt: string;
+  lastError?: string;
+}
+
 export interface VendorOrder {
   orderId: string;
   quote: QuoteResponse;
@@ -308,6 +342,8 @@ export interface VendorOrder {
 }
 
 export interface ZecGuardState {
+  agentWallet: AgentWalletState;
+  /** Deprecated compatibility mirror. New code should read agentWallet. */
   wallet: WalletState;
   purchases: Purchase[];
   activity: ActivityEvent[];

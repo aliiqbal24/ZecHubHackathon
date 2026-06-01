@@ -6,6 +6,17 @@ agent:
   # walletPreset: zingo-cli
   # walletPreset: zallet
 
+agentWallet:
+  backend: mock
+  label: Research Buyer Wallet
+  walletId: agent-default
+  zingoCliPath: zingo-cli
+  zingoServerUrl:
+  mainReturnAddress:
+  # For real local spending wallets, set:
+  # backend: zingo-cli
+  # mainReturnAddress: u1yourmainreturnaddress...
+
 spending:
   perTransactionZec: "0.05"
   dailyZec: "0.15"

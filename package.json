@@ -16,7 +16,7 @@
     "build": "npm run build -w @zecguard/core && npm run build -w @zecguard/demo-vendor && npm run build -w @zecguard/mcp-server && npm run build -w @zecguard/dashboard",
     "demo:reset": "node scripts/reset-demo-state.mjs",
     "demo:verify": "node scripts/verify-demo.mjs",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"**/dist/**\"",
     "typecheck": "tsc -b packages/core apps/demo-vendor apps/mcp-server --pretty false"
   },
   "devDependencies": {

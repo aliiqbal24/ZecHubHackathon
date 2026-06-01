@@ -5,6 +5,7 @@ import type { QuoteResponse, ZecGuardConfig, ZecGuardState } from "./types.js";
 
 const config: ZecGuardConfig = {
   agent: { name: "Test", walletMode: "mock", walletAddress: "u1test" },
+  agentWallet: { backend: "mock", label: "Test Wallet", walletId: "agent-default", zingoCliPath: "zingo-cli" },
   spending: { perTransactionZec: "0.05", dailyZec: "0.10", monthlyZec: "1.00" },
   approval: { requireEveryPayment: true, allowOneTimeOverride: true },
   vendors: { allowUnknownVendors: true, trusted: ["http://trusted.test"] },
@@ -13,6 +14,17 @@ const config: ZecGuardConfig = {
 };
 
 const state: ZecGuardState = {
+  agentWallet: {
+    id: "agent-default",
+    label: "Test Wallet",
+    backend: "mock",
+    status: "ready",
+    dataDir: ".zecguard/wallets/agent-default",
+    depositAddress: "u1test",
+    balanceZats: zecToZats("0.25"),
+    spendableZats: zecToZats("0.25"),
+    createdAt: new Date().toISOString()
+  },
   wallet: {
     mode: "mock",
     address: "u1test",

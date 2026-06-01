@@ -5,6 +5,7 @@ import type { ZecGuardConfig } from "./types.js";
 function makeConfig(verification: Partial<ZecGuardConfig["verification"]> = {}): ZecGuardConfig {
   return {
     agent: { name: "Test", walletMode: "mock", walletAddress: "u1test" },
+    agentWallet: { backend: "mock", label: "Test Wallet", walletId: "agent-default", zingoCliPath: "zingo-cli" },
     spending: { perTransactionZec: "0.05", dailyZec: "0.15", monthlyZec: "1.00" },
     approval: { requireEveryPayment: true, allowOneTimeOverride: true },
     vendors: { allowUnknownVendors: true, trusted: [] },

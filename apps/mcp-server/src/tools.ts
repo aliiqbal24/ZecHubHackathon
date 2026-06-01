@@ -53,6 +53,11 @@ export const toolDefinitions = [
     name: "get_zecguard_state",
     description: "Inspect wallet, pending approvals, activity, and receipts.",
     annotations: { readOnlyHint: true }
+  },
+  {
+    name: "get_agent_wallet_status",
+    description: "Inspect the dedicated agent spending wallet status, deposit address, and spendable balance.",
+    annotations: { readOnlyHint: true }
   }
 ];
 
@@ -304,6 +309,25 @@ export async function getZecGuardState() {
   };
 }
 
+export async function getAgentWalletStatus() {
+  const state = loadState();
+  return {
+    wallet: state.agentWallet,
+    setup:
+      state.agentWallet.backend === "zingo-cli"
+        ? {
+            zingoCliRequired: true,
+            funding: state.agentWallet.depositAddress
+              ? `Send a small ZEC amount to ${state.agentWallet.depositAddress} before approving agent purchases.`
+              : "Create or refresh the wallet from the dashboard to get a deposit address."
+          }
+        : {
+            zingoCliRequired: false,
+            funding: "Mock wallet is funded locally for demos."
+          }
+  };
+}
+
 export async function callTool(name: string, args: Record<string, unknown>) {
   switch (name) {
     case "discover_zec_vendor":
@@ -336,6 +360,8 @@ export async function callTool(name: string, args: Record<string, unknown>) {
       return claimFulfillment({ purchaseId: String(args.purchaseId ?? "") });
     case "get_zecguard_state":
       return getZecGuardState();
+    case "get_agent_wallet_status":
+      return getAgentWalletStatus();
     default:
       throw new Error(`Unknown tool: ${name}`);
   }

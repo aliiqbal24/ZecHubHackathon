@@ -3,8 +3,18 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { getZecGuardHome, loadConfig } from "./config.js";
 import { zecToZats } from "./money.js";
-import { createWalletAdapter } from "./wallet.js";
-import type { ActivityEvent, PaymentLedgerEntry, PaymentRecord, Purchase, VendorOrder, ZecGuardConfig, ZecGuardState } from "./types.js";
+import { createAgentWalletAdapter } from "./wallet.js";
+import type {
+  ActivityEvent,
+  AgentWalletState,
+  PaymentLedgerEntry,
+  PaymentRecord,
+  Purchase,
+  VendorOrder,
+  WalletState,
+  ZecGuardConfig,
+  ZecGuardState
+} from "./types.js";
 
 const INITIAL_BALANCE_ZEC = "0.25";
 
@@ -12,30 +22,42 @@ function statePath(): string {
   return process.env.ZECGUARD_STATE_PATH ?? path.join(getZecGuardHome(), "state.json");
 }
 
+function agentWalletDataDir(walletId: string): string {
+  return path.join(getZecGuardHome(), "wallets", walletId);
+}
+
 export function createInitialState(): ZecGuardState {
   const config = loadConfig();
-  const isMock = config.agent.walletMode === "mock";
+  const isMock = config.agentWallet.backend === "mock";
+  const walletId = config.agentWallet.walletId ?? "agent-default";
+  const now = new Date().toISOString();
+  const agentWallet: AgentWalletState = {
+    id: walletId,
+    label: config.agentWallet.label ?? `${config.agent.name} Wallet`,
+    backend: config.agentWallet.backend,
+    status: isMock ? "ready" : "not_created",
+    dataDir: agentWalletDataDir(walletId),
+    depositAddress: isMock ? config.agent.walletAddress : undefined,
+    mainReturnAddress: config.agentWallet.mainReturnAddress,
+    balanceZats: isMock ? zecToZats(INITIAL_BALANCE_ZEC) : 0,
+    spendableZats: isMock ? zecToZats(INITIAL_BALANCE_ZEC) : 0,
+    balanceUpdatedAt: isMock ? now : undefined,
+    createdAt: now
+  };
 
   return {
-    wallet: {
-      mode: config.agent.walletMode,
-      address: config.agent.walletAddress,
-      balanceZats: isMock ? zecToZats(INITIAL_BALANCE_ZEC) : 0,
-      spentTodayZats: 0,
-      spentMonthZats: 0,
-      balanceSource: isMock ? "mock" : "cached",
-      balanceUpdatedAt: new Date().toISOString()
-    },
+    agentWallet,
+    wallet: legacyWalletMirror(agentWallet, undefined, isMock ? "mock" : "cached"),
     purchases: [],
     activity: [
       {
         id: randomUUID(),
-        timestamp: new Date().toISOString(),
+        timestamp: now,
         kind: "system",
         title: "ZecGuard initialized",
         detail: isMock
           ? "Mock agent wallet funded for local prototype."
-          : "External wallet configured. Balance will update on next query."
+          : "Zingo agent wallet configured. Create or refresh the wallet from the dashboard."
       }
     ],
     vendorOrders: [],
@@ -57,6 +79,7 @@ export function loadState(): ZecGuardState {
 export function saveState(state: ZecGuardState): void {
   const file = statePath();
   recalculateWalletSpend(state);
+  syncLegacyWallet(state, state.wallet.balanceSource);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`);
 }
@@ -65,6 +88,7 @@ export function updateState(mutator: (state: ZecGuardState) => void): ZecGuardSt
   const state = loadState();
   mutator(state);
   recalculateWalletSpend(state);
+  syncLegacyWallet(state, state.wallet.balanceSource);
   saveState(state);
   return state;
 }
@@ -135,33 +159,44 @@ export function findMatchingLedgerPayment(state: ZecGuardState, order: VendorOrd
 }
 
 export async function refreshWalletBalance(state: ZecGuardState, config: ZecGuardConfig): Promise<void> {
-  if (config.agent.walletMode === "mock") return;
+  if (config.agentWallet.backend === "mock") return;
 
-  const adapter = createWalletAdapter(config);
+  const adapter = createAgentWalletAdapter(config);
   try {
-    const balanceZats = await adapter.getBalance();
-    state.wallet.balanceZats = balanceZats;
-    state.wallet.balanceSource = "live";
-    state.wallet.balanceUpdatedAt = new Date().toISOString();
-  } catch {
-    state.wallet.balanceSource = "cached";
+    if (!state.agentWallet.depositAddress) {
+      await adapter.createAgentWallet(state);
+    }
+    await adapter.refreshBalance(state);
+    syncLegacyWallet(state, "live");
+  } catch (err) {
+    state.agentWallet.status = isZingoMissingError(err) ? "zingo_missing" : "error";
+    state.agentWallet.lastError = err instanceof Error ? err.message : String(err);
+    syncLegacyWallet(state, "cached");
   }
 }
 
-function normalizeState(state: Partial<ZecGuardState>): ZecGuardState {
+export function normalizeState(state: Partial<ZecGuardState>): ZecGuardState {
   const initial = createInitialState();
-  return {
+  const migratedAgentWallet = normalizeAgentWallet(state, initial);
+  const normalized: ZecGuardState = {
     ...initial,
     ...state,
+    agentWallet: migratedAgentWallet,
     wallet: {
-      ...initial.wallet,
-      ...state.wallet
+      ...legacyWalletMirror(migratedAgentWallet, state.wallet),
+      ...state.wallet,
+      address: migratedAgentWallet.depositAddress ?? state.wallet?.address ?? initial.wallet.address,
+      balanceZats: migratedAgentWallet.balanceZats,
+      balanceUpdatedAt: migratedAgentWallet.balanceUpdatedAt ?? state.wallet?.balanceUpdatedAt
     },
     purchases: state.purchases ?? [],
     activity: state.activity ?? initial.activity,
     vendorOrders: state.vendorOrders ?? [],
     paymentLedger: state.paymentLedger ?? []
   };
+  recalculateWalletSpend(normalized);
+  syncLegacyWallet(normalized, normalized.wallet.balanceSource);
+  return normalized;
 }
 
 function recalculateWalletSpend(state: ZecGuardState): void {
@@ -176,4 +211,57 @@ function recalculateWalletSpend(state: ZecGuardState): void {
   state.wallet.spentMonthZats = payments
     .filter((payment) => payment.submittedAt.slice(0, 7) === month)
     .reduce((sum, payment) => sum + payment.amountZats, 0);
+}
+
+export function syncLegacyWallet(state: ZecGuardState, balanceSource = state.wallet.balanceSource): void {
+  state.wallet = legacyWalletMirror(state.agentWallet, state.wallet, balanceSource);
+}
+
+function legacyWalletMirror(
+  agentWallet: AgentWalletState,
+  previous?: Partial<WalletState>,
+  balanceSource: WalletState["balanceSource"] = agentWallet.backend === "mock" ? "mock" : "cached"
+): WalletState {
+  return {
+    mode: agentWallet.backend === "mock" ? "mock" : "external-cli",
+    address: agentWallet.depositAddress ?? previous?.address ?? "",
+    balanceZats: agentWallet.balanceZats,
+    spentTodayZats: previous?.spentTodayZats ?? 0,
+    spentMonthZats: previous?.spentMonthZats ?? 0,
+    balanceSource,
+    balanceUpdatedAt: agentWallet.balanceUpdatedAt ?? previous?.balanceUpdatedAt
+  };
+}
+
+function normalizeAgentWallet(state: Partial<ZecGuardState>, initial: ZecGuardState): AgentWalletState {
+  const config = loadConfig();
+  const legacy = state.wallet;
+  const existing = state.agentWallet;
+  const walletId = existing?.id ?? config.agentWallet.walletId ?? "agent-default";
+  const backend = existing?.backend ?? config.agentWallet.backend ?? (legacy?.mode === "mock" ? "mock" : "zingo-cli");
+  const balanceZats = existing?.balanceZats ?? legacy?.balanceZats ?? initial.agentWallet.balanceZats;
+  const spendableZats = existing?.spendableZats ?? balanceZats;
+  const depositAddress = existing?.depositAddress ?? legacy?.address ?? initial.agentWallet.depositAddress;
+
+  return {
+    ...initial.agentWallet,
+    ...existing,
+    id: walletId,
+    label: existing?.label ?? config.agentWallet.label ?? initial.agentWallet.label,
+    backend,
+    status:
+      existing?.status ??
+      (backend === "mock" ? "ready" : depositAddress ? (spendableZats > 0 ? "ready" : "waiting_for_funding") : "not_created"),
+    dataDir: existing?.dataDir ?? agentWalletDataDir(walletId),
+    depositAddress,
+    mainReturnAddress: existing?.mainReturnAddress ?? config.agentWallet.mainReturnAddress,
+    balanceZats,
+    spendableZats,
+    balanceUpdatedAt: existing?.balanceUpdatedAt ?? legacy?.balanceUpdatedAt ?? initial.agentWallet.balanceUpdatedAt,
+    createdAt: existing?.createdAt ?? initial.agentWallet.createdAt
+  };
+}
+
+function isZingoMissingError(err: unknown): boolean {
+  return err instanceof Error && /not found|enoent/i.test(err.message);
 }

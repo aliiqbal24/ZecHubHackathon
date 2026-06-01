@@ -7,22 +7,24 @@ export async function POST() {
   const config = loadConfig();
   const state = loadState();
 
-  if (config.agent.walletMode !== "mock") {
+  if (config.agentWallet.backend !== "mock") {
     await refreshWalletBalance(state, config);
     saveState(state);
     return NextResponse.json({
       ok: true,
-      wallet: state.wallet,
+      wallet: state.agentWallet,
       message: "Balance refreshed from wallet."
     });
   }
 
-  state.wallet.balanceZats += zecToZats("0.10");
+  state.agentWallet.balanceZats += zecToZats("0.10");
+  state.agentWallet.spendableZats += zecToZats("0.10");
+  state.agentWallet.balanceUpdatedAt = new Date().toISOString();
   appendActivity(state, {
     kind: "system",
     title: "Mock wallet topped up",
     detail: "Added 0.10 ZEC to the local demo wallet."
   });
   saveState(state);
-  return NextResponse.json({ ok: true, wallet: state.wallet });
+  return NextResponse.json({ ok: true, wallet: state.agentWallet });
 }

@@ -47,7 +47,8 @@ page.on("console", (message) => {
 });
 page.on("pageerror", (error) => errors.push(error.message));
 
-await page.goto(dashboardUrl, { waitUntil: "networkidle0", timeout: 30_000 });
+await page.goto(dashboardUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+await page.waitForFunction(() => document.body.innerText.includes("Agent spending firewall"), { timeout: 15_000 });
 await page.screenshot({ path: path.join(screenshotDir, "verify-01-loaded.png"), fullPage: true });
 
 const loaded = await page.evaluate(() => ({

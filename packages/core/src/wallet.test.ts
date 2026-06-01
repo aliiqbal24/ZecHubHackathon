@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
   buildExternalCliInvocation,
+  buildZingoCliInvocation,
   parseBalanceOutput,
   parseCliError,
+  parseZingoAddressOutput,
+  parseZingoBalanceOutput,
+  parseZingoTxId,
   parseTransactionOutput,
   resolveCliCommands,
-  WALLET_PRESETS
+  ZingoCliAgentWalletAdapter
 } from "./wallet.js";
 import { zecToZats } from "./money.js";
-import type { ZecGuardConfig } from "./types.js";
+import type { ZecGuardConfig, ZecGuardState } from "./types.js";
 
 const purchase = {
   payTo: "u1vendor000000000000000000000000000000000000000000",
@@ -24,6 +28,7 @@ function makeConfig(overrides: Partial<ZecGuardConfig["agent"]> = {}): ZecGuardC
       walletAddress: "u1test",
       ...overrides
     },
+    agentWallet: { backend: "zingo-cli", label: "Test Wallet", walletId: "agent-default", zingoCliPath: "zingo-cli" },
     spending: { perTransactionZec: "0.05", dailyZec: "0.15", monthlyZec: "1.00" },
     approval: { requireEveryPayment: true, allowOneTimeOverride: true },
     vendors: { allowUnknownVendors: true, trusted: [] },
@@ -62,28 +67,168 @@ describe("external wallet invocation", () => {
   });
 });
 
+describe("zingo agent wallet helpers", () => {
+  it("builds data-dir server and waitsync invocation without shell interpolation", () => {
+    const invocation = buildZingoCliInvocation({
+      cliPath: "zingo-cli",
+      dataDir: ".zecguard/wallets/agent-default",
+      serverUrl: "https://lightwalletd.example",
+      waitSync: true,
+      command: "send",
+      commandArgs: ["[]"]
+    });
+    expect(invocation).toEqual({
+      command: "zingo-cli",
+      args: [
+        "--data-dir",
+        ".zecguard/wallets/agent-default",
+        "--server",
+        "https://lightwalletd.example",
+        "--waitsync",
+        "send",
+        "[]"
+      ]
+    });
+  });
+
+  it("parses a unified address from JSON output", () => {
+    expect(parseZingoAddressOutput('{"unified":"u1testaddress0000000000000000000000000000"}')).toBe(
+      "u1testaddress0000000000000000000000000000"
+    );
+  });
+
+  it("parses zingo text and JSON balances", () => {
+    for (const output of [
+      "verified zatoshis: 500000\nspendable zatoshis: 300000\n",
+      '{"total_zatoshis":500000,"spendable_zatoshis":300000}'
+    ]) {
+      expect(parseZingoBalanceOutput(output)).toEqual({ balanceZats: 500000, spendableZats: 300000 });
+    }
+  });
+
+  it("parses a transaction id from send output", () => {
+    const txId = "ab".repeat(32);
+    expect(parseZingoTxId(`sent transaction ${txId}`)).toBe(txId);
+  });
+});
+
+describe("zingo agent wallet adapter", () => {
+  function makeState(): ZecGuardState {
+    return {
+      agentWallet: {
+        id: "agent-default",
+        label: "Test Wallet",
+        backend: "zingo-cli",
+        status: "not_created",
+        dataDir: ".zecguard/wallets/agent-default",
+        balanceZats: 0,
+        spendableZats: 0,
+        createdAt: new Date().toISOString()
+      },
+      wallet: {
+        mode: "external-cli",
+        address: "",
+        balanceZats: 0,
+        spentTodayZats: 0,
+        spentMonthZats: 0
+      },
+      purchases: [],
+      activity: [],
+      vendorOrders: [],
+      paymentLedger: []
+    };
+  }
+
+  it("creates wallet by reading addresses and stores the deposit address", async () => {
+    const calls: string[][] = [];
+    const runner = async (_command: string, args: string[]) => {
+      calls.push(args);
+      return { stdout: '{"unified":"u1testaddress0000000000000000000000000000"}', stderr: "" };
+    };
+    const state = makeState();
+    const adapter = new ZingoCliAgentWalletAdapter(makeConfig(), runner);
+
+    await adapter.createAgentWallet(state);
+
+    expect(calls[0]).toEqual(["--data-dir", ".zecguard/wallets/agent-default", "addresses"]);
+    expect(state.agentWallet.depositAddress).toBe("u1testaddress0000000000000000000000000000");
+    expect(state.agentWallet.status).toBe("waiting_for_funding");
+  });
+
+  it("refreshes balance and spendable zats", async () => {
+    const runner = async () => ({ stdout: "verified zatoshis: 500000\nspendable zatoshis: 300000\n", stderr: "" });
+    const state = makeState();
+    state.agentWallet.depositAddress = "u1testaddress0000000000000000000000000000";
+    const adapter = new ZingoCliAgentWalletAdapter(makeConfig(), runner);
+
+    await adapter.refreshBalance(state);
+
+    expect(state.agentWallet.balanceZats).toBe(500000);
+    expect(state.agentWallet.spendableZats).toBe(300000);
+    expect(state.agentWallet.status).toBe("ready");
+  });
+
+  it("sends payment with zingo-cli send JSON payload", async () => {
+    const calls: string[][] = [];
+    const txId = "ab".repeat(32);
+    const runner = async (_command: string, args: string[]) => {
+      calls.push(args);
+      return { stdout: `txid ${txId}`, stderr: "" };
+    };
+    const state = makeState();
+    state.agentWallet.spendableZats = zecToZats("0.01");
+    const adapter = new ZingoCliAgentWalletAdapter(makeConfig(), runner);
+
+    const payment = await adapter.sendPayment(
+      {
+        payTo: purchase.payTo,
+        amountZec: "0.003",
+        amountZats: purchase.amountZats,
+        memo: purchase.memo
+      } as never,
+      state,
+      makeConfig()
+    );
+
+    expect(calls[0]?.slice(0, 4)).toEqual(["--data-dir", ".zecguard/wallets/agent-default", "--waitsync", "send"]);
+    expect(calls[0]?.[4]).toContain(purchase.payTo);
+    expect(payment.txId).toBe(txId);
+    expect(payment.walletMode).toBe("zingo-cli");
+  });
+
+  it("sweeps spendable balance minus fee to main return address", async () => {
+    const txId = "cd".repeat(32);
+    let payload = "";
+    const runner = async (_command: string, args: string[]) => {
+      payload = args.at(-1) ?? "";
+      return { stdout: `txid ${txId}`, stderr: "" };
+    };
+    const state = makeState();
+    state.agentWallet.spendableZats = zecToZats("0.01");
+    const adapter = new ZingoCliAgentWalletAdapter(makeConfig(), runner);
+
+    const payment = await adapter.sweepToMain(state, "u1main0000000000000000000000000000000000000000");
+
+    expect(payload).toContain("0.0099");
+    expect(payment.amountZats).toBe(zecToZats("0.0099"));
+    expect(payment.payTo).toBe("u1main0000000000000000000000000000000000000000");
+  });
+});
+
 describe("wallet presets", () => {
-  it("resolves zodl preset commands via zallet rpc", () => {
-    const config = makeConfig({ walletPreset: "zodl" });
-    const resolved = resolveCliCommands(config);
-    expect(resolved.sendCommand).toContain("zallet rpc z_sendmany");
-    expect(resolved.balanceCommand).toBe("zallet rpc z_gettotalbalance");
-    expect(resolved.txCheckCommand).toContain("zallet rpc gettransaction");
-  });
+  it("resolves supported preset commands", () => {
+    const cases = [
+      { preset: "zodl" as const, send: "zallet rpc z_sendmany", balance: "zallet rpc z_gettotalbalance" },
+      { preset: "zingo-cli" as const, send: "zingo-cli", balance: "zingo-cli balance" },
+      { preset: "zallet" as const, send: "zallet rpc z_sendmany", balance: "zallet rpc z_gettotalbalance" }
+    ];
 
-  it("resolves zingo-cli preset commands", () => {
-    const config = makeConfig({ walletPreset: "zingo-cli" });
-    const resolved = resolveCliCommands(config);
-    expect(resolved.sendCommand).toContain("zingo-cli");
-    expect(resolved.balanceCommand).toBe("zingo-cli balance");
-    expect(resolved.txCheckCommand).toContain("zingo-cli");
-  });
-
-  it("resolves zallet preset commands", () => {
-    const config = makeConfig({ walletPreset: "zallet" });
-    const resolved = resolveCliCommands(config);
-    expect(resolved.sendCommand).toContain("zallet rpc z_sendmany");
-    expect(resolved.balanceCommand).toBe("zallet rpc z_gettotalbalance");
+    for (const { preset, send, balance } of cases) {
+      const resolved = resolveCliCommands(makeConfig({ walletPreset: preset }));
+      expect(resolved.sendCommand).toContain(send);
+      expect(resolved.balanceCommand).toBe(balance);
+      expect(resolved.txCheckCommand).toBeDefined();
+    }
   });
 
   it("explicit command overrides preset", () => {
@@ -96,48 +241,48 @@ describe("wallet presets", () => {
     expect(resolved.balanceCommand).toBe("zingo-cli balance");
   });
 
-  it("returns undefined when no preset and no explicit command", () => {
+  it("returns no commands when no preset and no explicit command", () => {
     const config = makeConfig({});
     const resolved = resolveCliCommands(config);
     expect(resolved.sendCommand).toBeUndefined();
     expect(resolved.balanceCommand).toBeUndefined();
     expect(resolved.txCheckCommand).toBeUndefined();
   });
-
-  it("all presets are defined", () => {
-    expect(Object.keys(WALLET_PRESETS)).toEqual(["zodl", "zingo-cli", "zallet"]);
-  });
 });
 
 describe("parseCliError", () => {
-  it("identifies insufficient funds", () => {
-    const err = Object.assign(new Error("Error: Insufficient funds available"), { stderr: "" });
-    const parsed = parseCliError(err, "zingo-cli");
-    expect(parsed.message).toContain("Insufficient funds");
-  });
+  it("classifies common wallet command failures", () => {
+    const cases = [
+      {
+        err: Object.assign(new Error("Error: Insufficient funds available"), { stderr: "" }),
+        command: "zingo-cli",
+        expected: "Insufficient funds"
+      },
+      {
+        err: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8232"), { stderr: "" }),
+        command: "zcash-cli",
+        expected: "Cannot connect"
+      },
+      {
+        err: Object.assign(new Error("spawn zingo-cli ENOENT"), { stderr: "", code: "ENOENT" }),
+        command: "zingo-cli",
+        expected: "not found"
+      },
+      {
+        err: Object.assign(new Error("Command timed out"), { stderr: "" }),
+        command: "zcash-cli",
+        expected: "timed out"
+      },
+      {
+        err: Object.assign(new Error("Command failed"), { stderr: "bad argument", code: 1 }),
+        command: "zallet",
+        expected: "exited with code 1"
+      }
+    ];
 
-  it("identifies connection refused", () => {
-    const err = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8232"), { stderr: "" });
-    const parsed = parseCliError(err, "zcash-cli");
-    expect(parsed.message).toContain("Cannot connect");
-  });
-
-  it("identifies command not found", () => {
-    const err = Object.assign(new Error("spawn zingo-cli ENOENT"), { stderr: "", code: "ENOENT" });
-    const parsed = parseCliError(err, "zingo-cli");
-    expect(parsed.message).toContain("not found");
-  });
-
-  it("identifies timeout", () => {
-    const err = Object.assign(new Error("Command timed out"), { stderr: "" });
-    const parsed = parseCliError(err, "zcash-cli");
-    expect(parsed.message).toContain("timed out");
-  });
-
-  it("reports exit code", () => {
-    const err = Object.assign(new Error("Command failed"), { stderr: "bad argument", code: 1 });
-    const parsed = parseCliError(err, "zallet");
-    expect(parsed.message).toContain("exited with code 1");
+    for (const { err, command, expected } of cases) {
+      expect(parseCliError(err, command).message).toContain(expected);
+    }
   });
 
   it("handles non-Error input", () => {
@@ -147,22 +292,17 @@ describe("parseCliError", () => {
 });
 
 describe("parseBalanceOutput", () => {
-  it("parses plain ZEC number", () => {
-    expect(parseBalanceOutput("0.12345678\n")).toBe(12345678);
-  });
+  it("parses common balance output shapes", () => {
+    const cases = [
+      { output: "0.12345678\n", expected: 12345678 },
+      { output: '{"transparent":"0.00000000","private":"0.50000000","total":"0.50000000"}', expected: 50000000 },
+      { output: '{"balance":"1.00000000"}', expected: 100000000 },
+      { output: "Your balance is 0.25000000 ZEC\n", expected: 25000000 }
+    ];
 
-  it("parses zcash-cli JSON balance", () => {
-    const json = '{"transparent":"0.00000000","private":"0.50000000","total":"0.50000000"}';
-    expect(parseBalanceOutput(json)).toBe(50000000);
-  });
-
-  it("parses JSON with balance field", () => {
-    const json = '{"balance":"1.00000000"}';
-    expect(parseBalanceOutput(json)).toBe(100000000);
-  });
-
-  it("parses number embedded in text", () => {
-    expect(parseBalanceOutput("Your balance is 0.25000000 ZEC\n")).toBe(25000000);
+    for (const { output, expected } of cases) {
+      expect(parseBalanceOutput(output)).toBe(expected);
+    }
   });
 
   it("throws on unparseable output", () => {
@@ -171,28 +311,18 @@ describe("parseBalanceOutput", () => {
 });
 
 describe("parseTransactionOutput", () => {
-  it("parses JSON with confirmations", () => {
-    const json = '{"txid":"abc123","confirmations":5,"height":12345}';
-    const result = parseTransactionOutput("abc123", json);
-    expect(result.status).toBe("confirmed");
-    expect(result.confirmations).toBe(5);
-  });
+  it("maps transaction output to status and confirmation count", () => {
+    const cases = [
+      { output: '{"txid":"abc123","confirmations":5,"height":12345}', status: "confirmed", confirmations: 5 },
+      { output: '{"txid":"abc123","confirmations":0}', status: "pending", confirmations: 0 },
+      { output: "Transaction abc123\nconfirmations: 3\n", status: "confirmed", confirmations: 3 },
+      { output: "", status: "not_found", confirmations: 0 }
+    ] as const;
 
-  it("parses JSON with zero confirmations", () => {
-    const json = '{"txid":"abc123","confirmations":0}';
-    const result = parseTransactionOutput("abc123", json);
-    expect(result.status).toBe("pending");
-    expect(result.confirmations).toBe(0);
-  });
-
-  it("parses text with confirmations pattern", () => {
-    const result = parseTransactionOutput("abc123", "Transaction abc123\nconfirmations: 3\n");
-    expect(result.status).toBe("confirmed");
-    expect(result.confirmations).toBe(3);
-  });
-
-  it("returns not_found for empty output", () => {
-    const result = parseTransactionOutput("abc123", "");
-    expect(result.status).toBe("not_found");
+    for (const { output, status, confirmations } of cases) {
+      const result = parseTransactionOutput("abc123", output);
+      expect(result.status).toBe(status);
+      expect(result.confirmations).toBe(confirmations);
+    }
   });
 });

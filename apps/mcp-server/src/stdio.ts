@@ -146,5 +146,18 @@ server.registerTool(
   async () => textResult(await callTool("get_zecguard_state", {}))
 );
 
+server.registerTool(
+  "get_agent_wallet_status",
+  {
+    title: "Get Agent Wallet Status",
+    description: "Inspect the dedicated agent spending wallet status, deposit address, and spendable balance.",
+    annotations: {
+      readOnlyHint: true
+    },
+    inputSchema: {}
+  },
+  async () => textResult(await callTool("get_agent_wallet_status", {}))
+);
+
 const transport = new StdioServerTransport();
 await server.connect(transport);

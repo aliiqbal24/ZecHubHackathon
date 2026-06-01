@@ -28,7 +28,9 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input,
+select {
   font: inherit;
 }
 
@@ -313,6 +315,26 @@ button:disabled {
   bottom: 12px;
 }
 
+.wallet-card {
+  min-height: 142px;
+}
+
+.wallet-card .wallet-address {
+  display: block;
+  margin-top: 4px;
+}
+
+.wallet-card .wallet-error {
+  display: block;
+  max-width: 230px;
+  margin-top: 4px;
+  color: #ffd7d6;
+}
+
+.wallet-card .sweep-button {
+  right: 54px;
+}
+
 textarea {
   width: 100%;
   min-height: 132px;
@@ -334,6 +356,33 @@ textarea:focus {
   gap: 10px;
   margin-top: 12px;
   flex-wrap: wrap;
+}
+
+.view-tabs {
+  display: inline-flex;
+  gap: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 4px;
+  margin-bottom: 16px;
+}
+
+.view-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  border-radius: 6px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.view-tabs button.active {
+  background: var(--panel-2);
+  color: var(--text);
 }
 
 .approval-list,
@@ -476,17 +525,195 @@ li + li {
   line-height: 1.55;
 }
 
+.settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 16px;
+  align-items: start;
+}
+
+.settings-main,
+.profile-list {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-side {
+  display: grid;
+  gap: 16px;
+  position: sticky;
+  top: 16px;
+}
+
+.settings-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-actions {
+  display: grid;
+  gap: 14px;
+}
+
+.settings-actions p {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.settings-buttons {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.settings-buttons .primary-button,
+.settings-buttons .secondary-button {
+  width: 100%;
+}
+
+.settings-preview {
+  max-height: 620px;
+}
+
+.form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.form-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.field {
+  display: grid;
+  gap: 7px;
+}
+
+.field span,
+.list-heading h3,
+.advanced-section h3 {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select,
+.array-row input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  background: #11150f;
+  color: var(--text);
+  padding: 0 10px;
+}
+
+.field input:focus,
+.field select:focus,
+.array-row input:focus {
+  border-color: rgba(244, 183, 40, 0.7);
+}
+
+.toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #12160f;
+  padding: 0 12px;
+  color: #dce3d4;
+  font-size: 13px;
+}
+
+.checkbox-field input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--zec);
+}
+
+.list-editor,
+.advanced-section {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.list-heading,
+.array-row,
+.profile-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.list-heading,
+.profile-heading {
+  justify-content: space-between;
+}
+
+.array-row input {
+  flex: 1;
+}
+
+.profile-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #12160f;
+  padding: 14px;
+}
+
+.profile-heading strong {
+  font-size: 14px;
+}
+
+.empty-state.compact {
+  min-height: 48px;
+  font-size: 13px;
+}
+
+.error-banner.inline {
+  margin: 0;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 @media (max-width: 1060px) {
   .metrics-grid,
   .workspace-grid,
-  .lower-grid {
+  .lower-grid,
+  .settings-layout {
     grid-template-columns: 1fr 1fr;
   }
 
   .purchase-panel,
   .approvals-panel,
-  .lower-grid .panel:last-child {
+  .lower-grid .panel:last-child,
+  .settings-main {
     grid-column: 1 / -1;
+  }
+
+  .settings-side {
+    position: static;
   }
 }
 
@@ -499,7 +726,11 @@ li + li {
   .metrics-grid,
   .workspace-grid,
   .lower-grid,
-  .approval-body {
+  .approval-body,
+  .settings-layout,
+  .form-grid.two,
+  .form-grid.three,
+  .toggle-grid {
     grid-template-columns: 1fr;
   }
 

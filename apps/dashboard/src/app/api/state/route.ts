@@ -7,9 +7,9 @@ export async function GET() {
   const config = loadConfig();
   const state = loadState();
 
-  if (config.agent.walletMode !== "mock") {
-    const lastUpdate = state.wallet.balanceUpdatedAt
-      ? new Date(state.wallet.balanceUpdatedAt).getTime()
+  if (config.agentWallet.backend !== "mock") {
+    const lastUpdate = state.agentWallet.balanceUpdatedAt
+      ? new Date(state.agentWallet.balanceUpdatedAt).getTime()
       : 0;
     if (Date.now() - lastUpdate > 30_000) {
       await refreshWalletBalance(state, config);
