@@ -24,6 +24,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   ActivityEvent,
+  AgentWalletState,
   AgentWalletBackend,
   Purchase,
   ShippingProfile,
@@ -90,6 +91,7 @@ export function DashboardClient() {
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [configForm, setConfigForm] = useState<ZecGuardConfig | null>(null);
   const [lastLoadedConfig, setLastLoadedConfig] = useState<ZecGuardConfig | null>(null);
+  const [returnConfirmation, setReturnConfirmation] = useState("");
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/state", { cache: "no-store" });
@@ -216,6 +218,44 @@ export function DashboardClient() {
     );
   }
 
+  function updateWalletSafety(values: { backupCreated?: boolean; backupStoredOffline?: boolean }) {
+    return callAction("wallet-safety", () =>
+      fetch("/api/wallet/safety", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(values)
+      })
+    );
+  }
+
+  function verifyReturnAddress() {
+    return callAction("verify-return", () =>
+      fetch("/api/wallet/safety", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "verify-return-address", confirmation: returnConfirmation })
+      })
+    );
+  }
+
+  function runWalletPreflight() {
+    return callAction("preflight", () =>
+      fetch("/api/wallet/safety", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "preflight" })
+      })
+    );
+  }
+
+  function sweepWallet() {
+    return callAction("sweep", () =>
+      fetch("/api/wallet/sweep", {
+        method: "POST"
+      })
+    );
+  }
+
   if (!payload || !configForm) {
     return (
       <main className="shell">
@@ -251,7 +291,14 @@ export function DashboardClient() {
       ) : null}
 
       <section className="metrics-grid">
-        <WalletMetric wallet={payload.state.wallet} onTopUp={() => void topUp()} busy={busy === "fund"} />
+        <WalletMetric
+          wallet={payload.state.wallet}
+          agentWallet={payload.state.agentWallet}
+          config={payload.config}
+          onTopUp={() => void topUp()}
+          onSweep={() => void sweepWallet()}
+          busy={busy}
+        />
         <MetricCard icon={<Gauge size={18} />} label="Today spent" value={zec(payload.state.wallet.spentTodayZats)} />
         <MetricCard icon={<Clock size={18} />} label="Month spent" value={zec(payload.state.wallet.spentMonthZats)} />
         <MetricCard
@@ -261,6 +308,18 @@ export function DashboardClient() {
           detail="signed private receipts"
         />
       </section>
+
+      <WalletSafetyPanel
+        agentWallet={payload.state.agentWallet}
+        config={payload.config}
+        busy={busy}
+        returnConfirmation={returnConfirmation}
+        onReturnConfirmation={setReturnConfirmation}
+        onUpdate={updateWalletSafety}
+        onVerifyReturn={() => void verifyReturnAddress()}
+        onPreflight={() => void runWalletPreflight()}
+        onSweep={() => void sweepWallet()}
+      />
 
       <nav className="view-tabs" aria-label="Dashboard view">
         <button className={view === "activity" ? "active" : ""} onClick={() => setView("activity")}>
@@ -609,6 +668,11 @@ function SettingsView({
                 value={config.agentWallet.mainReturnAddress ?? ""}
                 onChange={(value) => onChange((draft) => void (draft.agentWallet.mainReturnAddress = setOptional(value)))}
               />
+              <TextField
+                label="Max real wallet balance"
+                value={config.agentWallet.maxRealWalletBalanceZec}
+                onChange={(value) => onChange((draft) => void (draft.agentWallet.maxRealWalletBalanceZec = value))}
+              />
             </div>
             <div className="form-grid three">
               <TextField
@@ -878,28 +942,170 @@ function CheckboxField({
 
 function WalletMetric({
   wallet,
+  agentWallet,
+  config,
   busy,
-  onTopUp
+  onTopUp,
+  onSweep
 }: {
   wallet: WalletState;
-  busy: boolean;
+  agentWallet: AgentWalletState;
+  config: ZecGuardConfig;
+  busy: string | null;
   onTopUp: () => void;
+  onSweep: () => void;
 }) {
   const isReal = wallet.mode === "external-cli";
+  const showDepositAddress =
+    !isReal ||
+    (agentWallet.safety.backupCreated &&
+      agentWallet.safety.backupStoredOffline &&
+      agentWallet.safety.returnAddressVerified &&
+      agentWallet.safety.preflightPassed);
+  const walletLabel = isReal
+    ? agentWallet.safety.readyForRealFunding
+      ? "Ready for real funding"
+      : "Not ready to fund"
+    : "Mock demo wallet";
   return (
-    <article className="metric-card">
+    <article className="metric-card wallet-card">
       <div className="metric-icon">
         <Coins size={18} />
       </div>
       <div>
         <span>Agent balance{wallet.balanceSource === "live" ? " (live)" : wallet.balanceSource === "cached" ? " (cached)" : ""}</span>
         <strong>{zec(wallet.balanceZats)}</strong>
-        <small>{wallet.address.slice(0, 18)}...</small>
+        <small>{walletLabel}</small>
+        <small className="wallet-address">
+          {showDepositAddress && agentWallet.depositAddress
+            ? agentWallet.depositAddress
+            : agentWallet.safety.lastDepositAddressFingerprint ?? "Deposit hidden until checklist passes"}
+        </small>
+        {isReal ? <small>Cap {config.agentWallet.maxRealWalletBalanceZec} ZEC</small> : null}
+        {agentWallet.lastError ? <small className="wallet-error">{agentWallet.lastError}</small> : null}
       </div>
-      <button className="mini-button" onClick={onTopUp} disabled={busy} title={isReal ? "Refresh balance" : "Add 0.10 ZEC"}>
+      {isReal ? (
+        <button className="mini-button sweep-button" onClick={onSweep} disabled={busy !== null} title="Sweep all funds to main wallet">
+          <RotateCcw size={14} />
+        </button>
+      ) : null}
+      <button className="mini-button" onClick={onTopUp} disabled={busy !== null} title={isReal ? "Run preflight and refresh balance" : "Add 0.10 ZEC"}>
         {isReal ? <RefreshCw size={14} /> : <Coins size={14} />}
       </button>
     </article>
+  );
+}
+
+function WalletSafetyPanel({
+  agentWallet,
+  config,
+  busy,
+  returnConfirmation,
+  onReturnConfirmation,
+  onUpdate,
+  onVerifyReturn,
+  onPreflight,
+  onSweep
+}: {
+  agentWallet: AgentWalletState;
+  config: ZecGuardConfig;
+  busy: string | null;
+  returnConfirmation: string;
+  onReturnConfirmation: (value: string) => void;
+  onUpdate: (values: { backupCreated?: boolean; backupStoredOffline?: boolean }) => void;
+  onVerifyReturn: () => void;
+  onPreflight: () => void;
+  onSweep: () => void;
+}) {
+  if (agentWallet.backend === "mock") {
+    return null;
+  }
+
+  const safety = agentWallet.safety;
+  const maxExceeded = agentWallet.spendableZats > Number(config.agentWallet.maxRealWalletBalanceZec) * 100_000_000;
+  const expectedSuffix = config.agentWallet.mainReturnAddress?.slice(-10) ?? "";
+  const checklist = [
+    ["Backup created", safety.backupCreated],
+    ["Backup stored offline", safety.backupStoredOffline],
+    ["Return address verified", safety.returnAddressVerified],
+    ["Wallet preflight passed", safety.preflightPassed],
+    ["Small test deposit observed", safety.smallTestDepositObserved],
+    ["Small test sweep completed", safety.smallTestSweepCompleted]
+  ] as const;
+
+  return (
+    <section className="panel wallet-safety-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Real wallet launch guard</h2>
+          <p>
+            {safety.readyForRealFunding
+              ? "Ready for real funding. Keep balance under the cap."
+              : `Not ready to fund. Wallet files: ${agentWallet.dataDir}`}
+          </p>
+        </div>
+        <span className={`status-tag ${safety.readyForRealFunding ? "good" : "warn"}`}>
+          {safety.readyForRealFunding ? "Ready for real funding" : "Not ready to fund"}
+        </span>
+      </div>
+
+      <div className="wallet-safety-grid">
+        <div className="checklist">
+          {checklist.map(([label, complete]) => (
+            <div className={`checklist-row ${complete ? "complete" : ""}`} key={label}>
+              {complete ? <Check size={15} /> : <AlertTriangle size={15} />}
+              <span>{label}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="wallet-safety-actions">
+          <div className="toggle-grid">
+            <CheckboxField
+              label="Backup created"
+              checked={safety.backupCreated}
+              onChange={(checked) =>
+                onUpdate({ backupCreated: checked, backupStoredOffline: safety.backupStoredOffline })
+              }
+            />
+            <CheckboxField
+              label="Backup stored offline"
+              checked={safety.backupStoredOffline}
+              onChange={(checked) => onUpdate({ backupCreated: safety.backupCreated, backupStoredOffline: checked })}
+            />
+          </div>
+          <div className="return-verify-row">
+            <TextField
+              label={`Retype last ${expectedSuffix.length || 10} chars of return address`}
+              value={returnConfirmation}
+              onChange={onReturnConfirmation}
+            />
+            <button className="secondary-button" onClick={onVerifyReturn} disabled={busy !== null || !expectedSuffix}>
+              <KeyRound size={15} />
+              Verify
+            </button>
+          </div>
+          <div className="quick-actions">
+            <button className="secondary-button" onClick={onPreflight} disabled={busy !== null}>
+              <RefreshCw size={15} />
+              Preflight
+            </button>
+            <button className="secondary-button" onClick={onSweep} disabled={busy !== null || !safety.returnAddressVerified}>
+              <RotateCcw size={15} />
+              Sweep all funds
+            </button>
+          </div>
+          <div className="wallet-fingerprints">
+            <span>Deposit: {safety.lastDepositAddressFingerprint ?? "unavailable"}</span>
+            <span>Return: {safety.lastReturnAddressFingerprint ?? "unavailable"}</span>
+            {maxExceeded ? <span className="danger-text">Balance exceeds safety cap.</span> : null}
+            {agentWallet.status === "error" || agentWallet.status === "zingo_missing" ? (
+              <span className="danger-text">If recovery is needed, use your backup with {agentWallet.dataDir}.</span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }
 

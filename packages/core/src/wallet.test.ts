@@ -12,6 +12,7 @@ import {
   ZingoCliAgentWalletAdapter
 } from "./wallet.js";
 import { zecToZats } from "./money.js";
+import { createDefaultAgentWalletSafety } from "./safety.js";
 import type { ZecGuardConfig, ZecGuardState } from "./types.js";
 
 const purchase = {
@@ -28,7 +29,13 @@ function makeConfig(overrides: Partial<ZecGuardConfig["agent"]> = {}): ZecGuardC
       walletAddress: "u1test",
       ...overrides
     },
-    agentWallet: { backend: "zingo-cli", label: "Test Wallet", walletId: "agent-default", zingoCliPath: "zingo-cli" },
+    agentWallet: {
+      backend: "zingo-cli",
+      label: "Test Wallet",
+      walletId: "agent-default",
+      zingoCliPath: "zingo-cli",
+      maxRealWalletBalanceZec: "0.05"
+    },
     spending: { perTransactionZec: "0.05", dailyZec: "0.15", monthlyZec: "1.00" },
     approval: { requireEveryPayment: true, allowOneTimeOverride: true },
     vendors: { allowUnknownVendors: true, trusted: [] },
@@ -97,6 +104,14 @@ describe("zingo agent wallet helpers", () => {
     );
   });
 
+  it("parses an address from zingo log-prefixed output", () => {
+    expect(
+      parseZingoAddressOutput(
+        'Launching sync task...\n[{"encoded_address":"u1w4hfhl6e9n3mxgsz8fxtkthlstpfkee9nyn4ffql4s3ew9thuf0c779kjeeuapzf2g2smzqa623tkn5p7lxt37sm53tvuuuvdc6rqv5d"}]\nZingo CLI quit successfully.'
+      )
+    ).toBe("u1w4hfhl6e9n3mxgsz8fxtkthlstpfkee9nyn4ffql4s3ew9thuf0c779kjeeuapzf2g2smzqa623tkn5p7lxt37sm53tvuuuvdc6rqv5d");
+  });
+
   it("parses zingo text and JSON balances", () => {
     for (const output of [
       "verified zatoshis: 500000\nspendable zatoshis: 300000\n",
@@ -123,7 +138,8 @@ describe("zingo agent wallet adapter", () => {
         dataDir: ".zecguard/wallets/agent-default",
         balanceZats: 0,
         spendableZats: 0,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        safety: createDefaultAgentWalletSafety()
       },
       wallet: {
         mode: "external-cli",

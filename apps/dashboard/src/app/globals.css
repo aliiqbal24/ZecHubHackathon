@@ -335,6 +335,60 @@ button:disabled {
   right: 54px;
 }
 
+.wallet-safety-panel {
+  margin-bottom: 16px;
+}
+
+.wallet-safety-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
+  gap: 14px;
+}
+
+.checklist,
+.wallet-safety-actions,
+.wallet-fingerprints {
+  display: grid;
+  gap: 10px;
+}
+
+.checklist-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  border: 1px solid rgba(244, 183, 40, 0.35);
+  border-radius: 8px;
+  background: #12160f;
+  color: var(--zec);
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.checklist-row.complete {
+  border-color: rgba(69, 198, 163, 0.35);
+  color: var(--teal);
+}
+
+.return-verify-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.wallet-fingerprints {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  color: var(--muted);
+  font-family: var(--font-geist-mono), var(--font-mono);
+  font-size: 11px;
+}
+
+.danger-text {
+  color: #ffd7d6;
+}
+
 textarea {
   width: 100%;
   min-height: 132px;
@@ -726,6 +780,8 @@ li + li {
   .metrics-grid,
   .workspace-grid,
   .lower-grid,
+  .wallet-safety-grid,
+  .return-verify-row,
   .approval-body,
   .settings-layout,
   .form-grid.two,

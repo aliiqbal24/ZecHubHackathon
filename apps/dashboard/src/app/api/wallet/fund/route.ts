@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { appendActivity, loadConfig, loadState, refreshWalletBalance, saveState, zecToZats } from "@zecguard/core";
+import { appendActivity, loadConfig, loadState, runAgentWalletPreflight, saveState, zecToZats } from "@zecguard/core";
 
 export const dynamic = "force-dynamic";
 
@@ -8,13 +8,25 @@ export async function POST() {
   const state = loadState();
 
   if (config.agentWallet.backend !== "mock") {
-    await refreshWalletBalance(state, config);
-    saveState(state);
-    return NextResponse.json({
-      ok: true,
-      wallet: state.agentWallet,
-      message: "Balance refreshed from wallet."
-    });
+    try {
+      await runAgentWalletPreflight(state, config);
+      saveState(state);
+      return NextResponse.json({
+        ok: true,
+        wallet: state.agentWallet,
+        message: "Wallet preflight and balance refresh completed."
+      });
+    } catch (err) {
+      saveState(state);
+      return NextResponse.json(
+        {
+          ok: false,
+          wallet: state.agentWallet,
+          error: err instanceof Error ? err.message : String(err)
+        },
+        { status: 409 }
+      );
+    }
   }
 
   state.agentWallet.balanceZats += zecToZats("0.10");

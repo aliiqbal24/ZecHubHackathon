@@ -7,12 +7,13 @@ agent:
   # walletPreset: zallet
 
 agentWallet:
-  backend: mock
+  backend: zingo-cli
   label: Research Buyer Wallet
   walletId: agent-default
-  zingoCliPath: zingo-cli
+  zingoCliPath: C:\Tools\zingolib\target\release\zingo-cli.exe
   zingoServerUrl:
-  mainReturnAddress:
+  mainReturnAddress: u1dpyr3yn0hvseq42zraa8q9zn0fhpk9lg0feulh6nz3zxjmqv983tk5jgnsq7zyyk9k32vzzzke9u53a6pvgl59ydkeg9ft2yma3q3l7vxnhm08wjchzfug89u5jpc3a7f2cyt95hsxhcyugkce6tyqzwl7799wxzz9y72sv4zuuw98tq
+  maxRealWalletBalanceZec: "0.05"
   # For real local spending wallets, set:
   # backend: zingo-cli
   # mainReturnAddress: u1yourmainreturnaddress...

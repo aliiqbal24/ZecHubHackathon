@@ -3,7 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { zecToZats } from "./money.js";
-import { approveAndPayPurchase, makeLocalPaymentPurchase, sweepAgentWallet } from "./payment.js";
+import { approveAndPayPurchase, assertRealWalletSafetyReady, makeLocalPaymentPurchase, sweepAgentWallet } from "./payment.js";
+import { createDefaultAgentWalletSafety } from "./safety.js";
 import { loadState, saveState } from "./state.js";
 import type { ZecGuardConfig, ZecGuardState } from "./types.js";
 
@@ -14,7 +15,8 @@ const config: ZecGuardConfig = {
     label: "Test Wallet",
     walletId: "agent-default",
     zingoCliPath: "zingo-cli",
-    mainReturnAddress: "u1mainreturn000000000000000000000000000000000000"
+    mainReturnAddress: "u1mainreturn000000000000000000000000000000000000",
+    maxRealWalletBalanceZec: "0.05"
   },
   spending: { perTransactionZec: "0.05", dailyZec: "0.15", monthlyZec: "1.00" },
   approval: { requireEveryPayment: true, allowOneTimeOverride: true },
@@ -42,6 +44,7 @@ function writeConfig(file: string) {
       "  walletId: agent-default",
       "  zingoCliPath: zingo-cli",
       "  mainReturnAddress: u1mainreturn000000000000000000000000000000000000",
+      "  maxRealWalletBalanceZec: \"0.05\"",
       "spending:",
       "  perTransactionZec: \"0.05\"",
       "  dailyZec: \"0.15\"",
@@ -76,7 +79,8 @@ function makeState(): ZecGuardState {
       balanceZats: zecToZats("0.25"),
       spendableZats: zecToZats("0.25"),
       balanceUpdatedAt: new Date().toISOString(),
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      safety: createDefaultAgentWalletSafety()
     },
     wallet: {
       mode: "mock",
@@ -196,4 +200,60 @@ describe("generic payments", () => {
     expect(saved.agentWallet.spendableZats).toBe(0);
     expect(saved.activity[0]?.title).toBe("Agent wallet swept");
   });
+
+  it("blocks real-wallet approvals when backup confirmation is missing", () => {
+    const state = makeReadyRealState();
+    state.agentWallet.safety.backupCreated = false;
+
+    expect(() => assertRealWalletSafetyReady(state, realConfig())).toThrow("Backup created");
+  });
+
+  it("blocks real-wallet approvals when main return address is missing", () => {
+    const state = makeReadyRealState();
+
+    expect(() =>
+      assertRealWalletSafetyReady(state, {
+        ...realConfig(),
+        agentWallet: { ...realConfig().agentWallet, mainReturnAddress: undefined }
+      })
+    ).toThrow("Return address verified");
+  });
+
+  it("blocks real-wallet approvals when spendable balance exceeds the safety cap", () => {
+    const state = makeReadyRealState();
+    state.agentWallet.spendableZats = zecToZats("0.06");
+    state.agentWallet.balanceZats = zecToZats("0.06");
+
+    expect(() => assertRealWalletSafetyReady(state, realConfig())).toThrow("safety cap");
+  });
 });
+
+function realConfig(): ZecGuardConfig {
+  return {
+    ...config,
+    agentWallet: {
+      ...config.agentWallet,
+      backend: "zingo-cli",
+      maxRealWalletBalanceZec: "0.05"
+    }
+  };
+}
+
+function makeReadyRealState(): ZecGuardState {
+  const state = makeState();
+  state.agentWallet.backend = "zingo-cli";
+  state.agentWallet.status = "ready";
+  state.agentWallet.depositAddress = "u1agentreal000000000000000000000000000000000000000";
+  state.agentWallet.balanceZats = zecToZats("0.01");
+  state.agentWallet.spendableZats = zecToZats("0.01");
+  state.agentWallet.safety = {
+    backupCreated: true,
+    backupStoredOffline: true,
+    returnAddressVerified: true,
+    smallTestDepositObserved: true,
+    smallTestSweepCompleted: true,
+    preflightPassed: true,
+    readyForRealFunding: true
+  };
+  return state;
+}

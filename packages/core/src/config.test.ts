@@ -18,7 +18,8 @@ function baseConfig(overrides: Partial<ZecGuardConfig> = {}): ZecGuardConfig {
       backend: "mock",
       label: "Test Agent Wallet",
       walletId: "agent-default",
-      zingoCliPath: "zingo-cli"
+      zingoCliPath: "zingo-cli",
+      maxRealWalletBalanceZec: "0.05"
     },
     spending: {
       perTransactionZec: "0.05",
@@ -103,5 +104,20 @@ describe("config", () => {
     config.verification = { mode: "mock" } as ZecGuardConfig["verification"];
 
     expect(parseConfig(config).verification?.minConfirmations).toBe(1);
+  });
+
+  it("rejects an invalid main return address", () => {
+    const config = baseConfig({
+      agentWallet: {
+        backend: "mock",
+        label: "Test Agent Wallet",
+        walletId: "agent-default",
+        zingoCliPath: "zingo-cli",
+        mainReturnAddress: "not-an-address",
+        maxRealWalletBalanceZec: "0.05"
+      }
+    });
+
+    expect(() => parseConfig(config)).toThrow();
   });
 });

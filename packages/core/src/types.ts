@@ -76,6 +76,7 @@ export interface AgentWalletConfig {
   zingoCliPath?: string;
   zingoServerUrl?: string;
   mainReturnAddress?: string;
+  maxRealWalletBalanceZec: string;
 }
 
 export interface SpendingConfig {
@@ -326,6 +327,23 @@ export interface AgentWalletState {
   balanceUpdatedAt?: string;
   createdAt: string;
   lastError?: string;
+  safety: AgentWalletSafetyState;
+}
+
+export interface AgentWalletSafetyState {
+  backupCreated: boolean;
+  backupStoredOffline: boolean;
+  returnAddressVerified: boolean;
+  smallTestDepositObserved: boolean;
+  smallTestSweepCompleted: boolean;
+  preflightPassed: boolean;
+  readyForRealFunding: boolean;
+  updatedAt?: string;
+  preflightCheckedAt?: string;
+  lastPreflightError?: string;
+  lastReturnAddressFingerprint?: string;
+  lastDepositAddressFingerprint?: string;
+  resetReason?: string;
 }
 
 export interface VendorOrder {

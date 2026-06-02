@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   appendActivity,
   approveAndPayPurchase,
+  buildAgentWalletSafetyReport,
   discoverVendor,
   evaluateGenericPaymentPolicy,
   evaluateQuotePolicy,
@@ -311,15 +312,21 @@ export async function getZecGuardState() {
 
 export async function getAgentWalletStatus() {
   const state = loadState();
+  const config = loadConfig();
+  const safety = buildAgentWalletSafetyReport(state.agentWallet, config);
   return {
     wallet: state.agentWallet,
+    safety,
     setup:
       state.agentWallet.backend === "zingo-cli"
         ? {
             zingoCliRequired: true,
             funding: state.agentWallet.depositAddress
-              ? `Send a small ZEC amount to ${state.agentWallet.depositAddress} before approving agent purchases.`
-              : "Create or refresh the wallet from the dashboard to get a deposit address."
+              ? safety.readyForRealFunding
+                ? "Dashboard checklist is complete. Keep real funding below the configured safety cap."
+                : `Not ready to fund. Complete dashboard safety checks first. Deposit fingerprint: ${safety.depositAddressFingerprint ?? "unavailable"}.`
+              : "Create or refresh the wallet from the dashboard to get a deposit address.",
+            dashboardOnlyActions: ["backup confirmation", "return address verification", "preflight", "sweep"]
           }
         : {
             zingoCliRequired: false,

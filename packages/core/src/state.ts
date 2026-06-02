@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { addressFingerprint } from "./address.js";
 import { getZecGuardHome, loadConfig } from "./config.js";
 import { zecToZats } from "./money.js";
+import { applySafetyReadiness, createDefaultAgentWalletSafety, normalizeAgentWalletSafety } from "./safety.js";
 import { createAgentWalletAdapter } from "./wallet.js";
 import type {
   ActivityEvent,
@@ -42,8 +44,10 @@ export function createInitialState(): ZecGuardState {
     balanceZats: isMock ? zecToZats(INITIAL_BALANCE_ZEC) : 0,
     spendableZats: isMock ? zecToZats(INITIAL_BALANCE_ZEC) : 0,
     balanceUpdatedAt: isMock ? now : undefined,
-    createdAt: now
+    createdAt: now,
+    safety: createDefaultAgentWalletSafety()
   };
+  agentWallet.safety = normalizeAgentWalletSafety(agentWallet.safety, agentWallet, config);
 
   return {
     agentWallet,
@@ -167,11 +171,57 @@ export async function refreshWalletBalance(state: ZecGuardState, config: ZecGuar
       await adapter.createAgentWallet(state);
     }
     await adapter.refreshBalance(state);
+    state.agentWallet.safety.smallTestDepositObserved =
+      state.agentWallet.safety.smallTestDepositObserved || state.agentWallet.balanceZats > 0;
+    state.agentWallet.safety.lastPreflightError = undefined;
+    applySafetyReadiness(state.agentWallet.safety, state.agentWallet, config);
     syncLegacyWallet(state, "live");
   } catch (err) {
     state.agentWallet.status = isZingoMissingError(err) ? "zingo_missing" : "error";
     state.agentWallet.lastError = err instanceof Error ? err.message : String(err);
+    state.agentWallet.safety.lastPreflightError = state.agentWallet.lastError;
+    state.agentWallet.safety.preflightPassed = false;
+    applySafetyReadiness(state.agentWallet.safety, state.agentWallet, config);
     syncLegacyWallet(state, "cached");
+  }
+}
+
+export async function runAgentWalletPreflight(state: ZecGuardState, config: ZecGuardConfig): Promise<void> {
+  if (config.agentWallet.backend === "mock") {
+    state.agentWallet.safety.preflightPassed = true;
+    state.agentWallet.safety.lastPreflightError = undefined;
+    state.agentWallet.safety.preflightCheckedAt = new Date().toISOString();
+    applySafetyReadiness(state.agentWallet.safety, state.agentWallet, config);
+    return;
+  }
+
+  const adapter = createAgentWalletAdapter(config);
+  try {
+    const availability = await adapter.checkAvailability();
+    if (!availability.available) {
+      throw new Error(availability.detail ?? "Zingo CLI is not available.");
+    }
+    if (!state.agentWallet.depositAddress) {
+      await adapter.createAgentWallet(state);
+    }
+    if (!fs.existsSync(state.agentWallet.dataDir)) {
+      throw new Error(`Wallet data directory does not exist: ${state.agentWallet.dataDir}`);
+    }
+    await adapter.refreshBalance(state);
+    state.agentWallet.safety.preflightPassed = true;
+    state.agentWallet.safety.preflightCheckedAt = new Date().toISOString();
+    state.agentWallet.safety.lastPreflightError = undefined;
+    state.agentWallet.safety.smallTestDepositObserved =
+      state.agentWallet.safety.smallTestDepositObserved || state.agentWallet.balanceZats > 0;
+    applySafetyReadiness(state.agentWallet.safety, state.agentWallet, config);
+  } catch (err) {
+    state.agentWallet.status = isZingoMissingError(err) ? "zingo_missing" : "error";
+    state.agentWallet.lastError = err instanceof Error ? err.message : String(err);
+    state.agentWallet.safety.preflightPassed = false;
+    state.agentWallet.safety.preflightCheckedAt = new Date().toISOString();
+    state.agentWallet.safety.lastPreflightError = state.agentWallet.lastError;
+    applySafetyReadiness(state.agentWallet.safety, state.agentWallet, config);
+    throw err;
   }
 }
 
@@ -238,28 +288,58 @@ function normalizeAgentWallet(state: Partial<ZecGuardState>, initial: ZecGuardSt
   const legacy = state.wallet;
   const existing = state.agentWallet;
   const walletId = existing?.id ?? config.agentWallet.walletId ?? "agent-default";
-  const backend = existing?.backend ?? config.agentWallet.backend ?? (legacy?.mode === "mock" ? "mock" : "zingo-cli");
-  const balanceZats = existing?.balanceZats ?? legacy?.balanceZats ?? initial.agentWallet.balanceZats;
-  const spendableZats = existing?.spendableZats ?? balanceZats;
-  const depositAddress = existing?.depositAddress ?? legacy?.address ?? initial.agentWallet.depositAddress;
+  const configuredBackend = config.agentWallet.backend ?? (legacy?.mode === "mock" ? "mock" : "zingo-cli");
+  const backend = existing?.backend === configuredBackend ? existing.backend : configuredBackend;
+  const switchingBackend = existing?.backend !== undefined && existing.backend !== backend;
+  const balanceZats = switchingBackend
+    ? initial.agentWallet.balanceZats
+    : existing?.balanceZats ?? legacy?.balanceZats ?? initial.agentWallet.balanceZats;
+  const spendableZats = switchingBackend ? initial.agentWallet.spendableZats : existing?.spendableZats ?? balanceZats;
+  const candidateDepositAddress = switchingBackend
+    ? initial.agentWallet.depositAddress
+    : existing?.depositAddress ?? legacy?.address ?? initial.agentWallet.depositAddress;
+  const staleLegacyDeposit = backend === "zingo-cli" && candidateDepositAddress === config.agent.walletAddress;
+  const depositAddress = staleLegacyDeposit ? undefined : candidateDepositAddress;
+  const configuredReturnAddress = config.agentWallet.mainReturnAddress;
+  const existingReturnAddress = existing?.mainReturnAddress;
+  const walletSettingsChanged = [
+    switchingBackend ? "wallet backend changed" : undefined,
+    staleLegacyDeposit ? "legacy mock address was removed from real wallet state" : undefined,
+    existing?.id !== undefined && existing.id !== walletId ? "wallet id changed" : undefined,
+    existing?.mainReturnAddress !== undefined && existingReturnAddress !== configuredReturnAddress ? "main return address changed" : undefined,
+    existing?.safety?.lastReturnAddressFingerprint &&
+    existing.safety.lastReturnAddressFingerprint !== addressFingerprint(configuredReturnAddress)
+      ? "return address fingerprint changed"
+      : undefined,
+    existing?.safety?.lastDepositAddressFingerprint &&
+    depositAddress &&
+    existing.safety.lastDepositAddressFingerprint !== addressFingerprint(depositAddress)
+      ? "deposit address changed"
+      : undefined
+  ].find((reason): reason is string => Boolean(reason));
 
-  return {
+  const normalized: AgentWalletState = {
     ...initial.agentWallet,
     ...existing,
     id: walletId,
     label: existing?.label ?? config.agentWallet.label ?? initial.agentWallet.label,
     backend,
     status:
-      existing?.status ??
+      (switchingBackend || staleLegacyDeposit ? undefined : existing?.status) ??
       (backend === "mock" ? "ready" : depositAddress ? (spendableZats > 0 ? "ready" : "waiting_for_funding") : "not_created"),
     dataDir: existing?.dataDir ?? agentWalletDataDir(walletId),
     depositAddress,
-    mainReturnAddress: existing?.mainReturnAddress ?? config.agentWallet.mainReturnAddress,
+    mainReturnAddress: config.agentWallet.mainReturnAddress ?? existing?.mainReturnAddress,
     balanceZats,
     spendableZats,
-    balanceUpdatedAt: existing?.balanceUpdatedAt ?? legacy?.balanceUpdatedAt ?? initial.agentWallet.balanceUpdatedAt,
-    createdAt: existing?.createdAt ?? initial.agentWallet.createdAt
+    balanceUpdatedAt: switchingBackend
+      ? initial.agentWallet.balanceUpdatedAt
+      : existing?.balanceUpdatedAt ?? legacy?.balanceUpdatedAt ?? initial.agentWallet.balanceUpdatedAt,
+    createdAt: existing?.createdAt ?? initial.agentWallet.createdAt,
+    safety: createDefaultAgentWalletSafety()
   };
+  normalized.safety = normalizeAgentWalletSafety(existing?.safety, normalized, config, walletSettingsChanged);
+  return normalized;
 }
 
 function isZingoMissingError(err: unknown): boolean {

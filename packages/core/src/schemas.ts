@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isLikelyZcashAddress } from "./address.js";
 import { zecToZats } from "./money.js";
 import type { ZecGuardConfig } from "./types.js";
 
@@ -31,6 +32,17 @@ const optionalHttpUrlStringSchema = z.preprocess(
   httpUrlStringSchema.optional()
 );
 
+const optionalZcashAddressSchema = z.preprocess(
+  (value) => (value === "" || value === null ? undefined : value),
+  z
+    .string()
+    .trim()
+    .refine((value) => isLikelyZcashAddress(value), {
+      message: "Must look like a supported Zcash address."
+    })
+    .optional()
+);
+
 const agentConfigSchema = z.object({
   name: z.string().min(1),
   walletMode: z.enum(["mock", "external-cli"]),
@@ -48,7 +60,8 @@ const agentWalletConfigSchema = z
     walletId: optionalNonEmptyString,
     zingoCliPath: optionalNonEmptyString,
     zingoServerUrl: optionalHttpUrlStringSchema,
-    mainReturnAddress: optionalNonEmptyString
+    mainReturnAddress: optionalZcashAddressSchema,
+    maxRealWalletBalanceZec: zecAmountStringSchema.optional()
   })
   .optional();
 
@@ -107,7 +120,8 @@ export const zecGuardConfigSchema = z
         backend,
         label: agentWallet.label ?? `${config.agent.name} Wallet`,
         walletId: agentWallet.walletId ?? "agent-default",
-        zingoCliPath: agentWallet.zingoCliPath ?? "zingo-cli"
+        zingoCliPath: agentWallet.zingoCliPath ?? "zingo-cli",
+        maxRealWalletBalanceZec: agentWallet.maxRealWalletBalanceZec ?? "0.05"
       },
       vendors: {
         ...config.vendors,

@@ -21,6 +21,7 @@ agentWallet:
   zingoCliPath: zingo-cli
   zingoServerUrl:
   mainReturnAddress: u1...
+  maxRealWalletBalanceZec: "0.05"
 ```
 
 When the dashboard refreshes, ZecGuard runs commands like:
@@ -29,11 +30,24 @@ When the dashboard refreshes, ZecGuard runs commands like:
 zingo-cli --data-dir .zecguard/wallets/agent-default [--server <url>] [--waitsync] <command>
 ```
 
-The dashboard shows the deposit address, total balance, spendable balance, and setup errors. Funding is manual in v1: send a small amount of ZEC to the displayed agent wallet address, then approve purchases normally.
+The dashboard shows the wallet status, balance, safety checklist, address fingerprints, and setup errors. Real funding is blocked by default. Treat the deposit address as "not ready to fund" until the dashboard checklist says **Ready for real funding**.
+
+The strict launch checklist requires:
+
+- Wallet backup or recovery material created.
+- Backup stored offline.
+- `mainReturnAddress` configured and verified by re-typing its final characters.
+- Zingo CLI preflight passed: CLI available, wallet data directory exists, deposit address parsed, and balance refresh works.
+- Small test deposit observed.
+- Small test sweep completed.
+
+Until all checks pass, real-wallet approvals fail closed. ZecGuard also blocks approvals when the spendable wallet balance exceeds `agentWallet.maxRealWalletBalanceZec`; sweep excess funds before approving purchases.
 
 ## Returning Funds
 
 Set `agentWallet.mainReturnAddress` to enable the dashboard-only sweep action. Sweep is intentionally not exposed as an MCP tool. ZecGuard reserves a small fee and sends the remaining spendable balance back to the configured return address.
+
+If the wallet becomes unhealthy, recover with your offline backup and the wallet data path shown in the dashboard: `.zecguard/wallets/<walletId>`. Deleting that directory without a backup can lose access to any funds controlled by the agent wallet.
 
 ## Legacy External CLI Mode
 

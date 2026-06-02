@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
+import { isLikelyZcashAddress } from "./address.js";
 import { zatsToZec, zecToZats } from "./money.js";
 import { loadState } from "./state.js";
 import type {
@@ -431,7 +432,8 @@ export function buildZingoCliInvocation(args: {
 export function parseZingoAddressOutput(stdout: string): string {
   const trimmed = stdout.trim();
   const strings = extractJsonStrings(trimmed);
-  const candidates = [...strings, ...trimmed.split(/\s+/)].filter(isLikelyZcashAddress);
+  const embeddedAddresses = trimmed.match(/\b(?:u1|utest|zs|ztestsapling|t1|t3|tm|tex)[a-zA-Z0-9]{20,}\b/g) ?? [];
+  const candidates = [...strings, ...embeddedAddresses, ...trimmed.split(/\s+/)].filter(isLikelyZcashAddress);
   const address = candidates.sort((a, b) => b.length - a.length)[0];
   if (!address) {
     throw new Error(`Cannot parse Zingo deposit address from output: ${trimmed.slice(0, 200)}`);
@@ -652,10 +654,6 @@ function extractJsonStrings(input: string): string[] {
   } catch {
     return [];
   }
-}
-
-function isLikelyZcashAddress(value: string): boolean {
-  return /^(u1|utest|zs|ztestsapling|t1|t3|tm|tex)[a-zA-Z0-9]{20,}$/.test(value);
 }
 
 function numberLike(value: unknown): number | undefined {

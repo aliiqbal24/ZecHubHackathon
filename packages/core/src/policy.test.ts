@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { evaluateQuotePolicy } from "./policy.js";
 import { zecToZats } from "./money.js";
+import { createDefaultAgentWalletSafety } from "./safety.js";
 import type { QuoteResponse, ZecGuardConfig, ZecGuardState } from "./types.js";
 
 const config: ZecGuardConfig = {
   agent: { name: "Test", walletMode: "mock", walletAddress: "u1test" },
-  agentWallet: { backend: "mock", label: "Test Wallet", walletId: "agent-default", zingoCliPath: "zingo-cli" },
+  agentWallet: {
+    backend: "mock",
+    label: "Test Wallet",
+    walletId: "agent-default",
+    zingoCliPath: "zingo-cli",
+    maxRealWalletBalanceZec: "0.05"
+  },
   spending: { perTransactionZec: "0.05", dailyZec: "0.10", monthlyZec: "1.00" },
   approval: { requireEveryPayment: true, allowOneTimeOverride: true },
   vendors: { allowUnknownVendors: true, trusted: ["http://trusted.test"] },
@@ -23,7 +30,8 @@ const state: ZecGuardState = {
     depositAddress: "u1test",
     balanceZats: zecToZats("0.25"),
     spendableZats: zecToZats("0.25"),
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
+    safety: createDefaultAgentWalletSafety()
   },
   wallet: {
     mode: "mock",

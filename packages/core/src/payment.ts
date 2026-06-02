@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { assertLikelyZcashAddress } from "./address.js";
 import { appendActivity, loadState, recordPayment, refreshWalletBalance, saveState } from "./state.js";
 import { createAgentWalletAdapter, createWalletAdapter, waitForConfirmation } from "./wallet.js";
 import { canApprovePurchase, evaluateGenericPaymentPolicy, evaluateQuotePolicy } from "./policy.js";
 import { verifyReceipt } from "./receipt.js";
 import { zecToZats, zatsToZec } from "./money.js";
+import { applySafetyReadiness, buildAgentWalletSafetyReport } from "./safety.js";
 import type { LocalPaymentReceipt, Purchase, ShippingProfile, ZecGuardConfig } from "./types.js";
 
 const REAL_WALLET_BALANCE_MAX_AGE_MS = 5 * 60_000;
@@ -115,6 +117,7 @@ export async function approveAndPayPurchase(
   if (config.agentWallet.backend === "zingo-cli") {
     await refreshWalletBalance(state, config);
     assertAgentWalletReady(state, purchase.amountZats);
+    assertRealWalletSafetyReady(state, config);
   } else if (state.agentWallet.spendableZats < purchase.amountZats) {
     throw new Error(`Insufficient mock wallet balance: ${zatsToZec(state.agentWallet.spendableZats)} ZEC available, ${purchase.amountZec} ZEC needed.`);
   }
@@ -261,9 +264,9 @@ export async function approveAndPayPurchase(
 
 export async function sweepAgentWallet(config: ZecGuardConfig): Promise<SweepAgentWalletResult> {
   const state = loadState();
-  const mainReturnAddress = config.agentWallet.mainReturnAddress;
-  if (!mainReturnAddress) {
-    throw new Error("No mainReturnAddress configured for agent wallet sweep.");
+  const mainReturnAddress = assertLikelyZcashAddress(config.agentWallet.mainReturnAddress, "mainReturnAddress");
+  if (config.agentWallet.backend === "zingo-cli" && !state.agentWallet.safety.returnAddressVerified) {
+    throw new Error("Return address must be verified in the dashboard before sweeping the agent wallet.");
   }
 
   const adapter = createAgentWalletAdapter(config);
@@ -281,6 +284,9 @@ export async function sweepAgentWallet(config: ZecGuardConfig): Promise<SweepAge
   state.agentWallet.balanceUpdatedAt = now;
   state.agentWallet.status = state.agentWallet.spendableZats > 0 ? "ready" : "waiting_for_funding";
   state.agentWallet.lastError = undefined;
+  state.agentWallet.safety.smallTestSweepCompleted = true;
+  state.agentWallet.safety.updatedAt = now;
+  applySafetyReadiness(state.agentWallet.safety, state.agentWallet, config);
   appendActivity(state, {
     kind: "payment",
     title: "Agent wallet swept",
@@ -304,6 +310,17 @@ function assertAgentWalletReady(state: ReturnType<typeof loadState>, amountZats:
   }
   if (state.agentWallet.spendableZats < amountZats) {
     throw new Error(`Insufficient agent wallet balance: ${zatsToZec(state.agentWallet.spendableZats)} ZEC spendable, ${zatsToZec(amountZats)} ZEC needed.`);
+  }
+}
+
+export function assertRealWalletSafetyReady(state: ReturnType<typeof loadState>, config: ZecGuardConfig): void {
+  applySafetyReadiness(state.agentWallet.safety, state.agentWallet, config);
+  const report = buildAgentWalletSafetyReport(state.agentWallet, config);
+  if (state.agentWallet.spendableZats > zecToZats(config.agentWallet.maxRealWalletBalanceZec)) {
+    throw new Error(`Agent wallet spendable balance exceeds the ${config.agentWallet.maxRealWalletBalanceZec} ZEC safety cap. Sweep excess funds before approving payments.`);
+  }
+  if (!report.readyForRealFunding) {
+    throw new Error(`Agent wallet is not ready for real funding. Missing: ${report.blockers.join(", ")}.`);
   }
 }
 
