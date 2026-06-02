@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import { parseP2PRequest, resolveContact } from "./contacts.js";
 import { extractZecInvoices, invoicesAreStable } from "./invoice.js";
 import { makeLocalPaymentPurchase } from "./payment.js";
+import { getDashboardUrl } from "./setup.js";
 import { appendActivity, loadState, upsertPurchase, updateState } from "./state.js";
 import type {
   StartWebPurchaseInput,
@@ -150,7 +151,7 @@ export async function startWebPurchase(args: StartWebPurchaseInput): Promise<Sta
     checkoutStatus: "invoice_found",
     nextAction: "review_purchase",
     purchaseId: purchase.id,
-    approvalUrl: `http://localhost:3000/?purchase=${purchase.id}`,
+    approvalUrl: `${getDashboardUrl()}/?purchase=${purchase.id}`,
     invoice,
     policy: purchase.policy,
     vendorProfile: profile,
@@ -217,7 +218,7 @@ function startP2PPurchase(
     checkoutStatus: "invoice_found",
     nextAction: "review_purchase",
     purchaseId: purchase.id,
-    approvalUrl: `http://localhost:3000/?purchase=${purchase.id}`,
+    approvalUrl: `${getDashboardUrl()}/?purchase=${purchase.id}`,
     invoice: {
       payTo: contact.address,
       amountZec: p2p.amountZec,

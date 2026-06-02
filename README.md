@@ -18,7 +18,25 @@ ZecGuard is a local prototype for private, policy-governed AI agent purchases ov
 - Mock wallet path for smooth demos and an external CLI wallet adapter boundary for real Zcash tooling
 - Mock payment ledger so the vendor verifies a recorded payment instead of trusting a callback payload
 
-## Run It
+## Normal User Install
+
+Add ZecGuard to an MCP client with one stdio command:
+
+```bash
+npx -y @zechub/zecguard mcp
+```
+
+That command creates user-level ZecGuard config/state, starts the local dashboard on `127.0.0.1`, then starts MCP stdio. Dashboard logs are written to stderr so MCP protocol output on stdout stays clean.
+
+Test a fresh install before adding it to an agent:
+
+```bash
+npx -y @zechub/zecguard doctor
+```
+
+First run uses a real-wallet setup wizard. Purchase preparation returns `setup_required` until Zingo CLI is configured, the wallet preflight passes, backup and return-address checks are confirmed, and a small test deposit/sweep is complete.
+
+## Developer Run From Source
 
 ```bash
 npm install
@@ -56,7 +74,13 @@ npm run demo:verify
 
 ## Agent Connection
 
-For MCP stdio clients, use:
+For normal MCP stdio clients, use:
+
+```bash
+npx -y @zechub/zecguard mcp
+```
+
+Developer source checkout only:
 
 ```bash
 npm run mcp:stdio
@@ -121,7 +145,7 @@ Protocol details are in `ZEC_HARNESS.md`.
 
 ## Real Wallet Boundary
 
-The mock wallet is the default because it keeps the prototype reliable without local Zcash node setup. The real-payment seam is `ExternalCliWalletAdapter` in `packages/core/src/wallet.ts`; configure `agent.walletMode: external-cli` and `agent.externalCliCommand` in `zecguard.config.yaml` to route sends through a local wallet command.
+The packaged CLI defaults to the real Zingo CLI setup wizard and stores runtime files in user app-data. The source checkout can still use mock/demo settings through `zecguard.config.yaml` for local development.
 
 Real wallet details are in `REAL_WALLET.md`.
 

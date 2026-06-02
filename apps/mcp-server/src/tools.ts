@@ -6,11 +6,14 @@ import {
   discoverVendor,
   evaluateGenericPaymentPolicy,
   evaluateQuotePolicy,
+  getDashboardUrl,
+  getSetupStatus,
   loadConfig,
   loadState,
   makeLocalPaymentPurchase,
   reserveVendorOrder,
   requestVendorQuote,
+  setupRequiredResult,
   startWebPurchase,
   upsertPurchase,
   updateState,
@@ -78,12 +81,16 @@ export async function requestQuote(args: {
   options?: Record<string, unknown>;
 }) {
   const config = loadConfig();
+  const state = loadState();
+  const setup = getSetupStatus(config, state);
+  if (setup.setupRequired) {
+    return setupRequiredResult(config, state);
+  }
   const quote = await requestVendorQuote(args.vendorUrl, {
     itemId: args.itemId,
     options: args.options
   });
   const order = await reserveVendorOrder(args.vendorUrl, quote.quoteId);
-  const state = loadState();
   const policy = evaluateQuotePolicy(quote, config, state);
   const now = new Date().toISOString();
 
@@ -133,7 +140,7 @@ export async function requestQuote(args: {
   return {
     purchaseId: purchase.id,
     status: purchase.status,
-    approvalUrl: `http://localhost:3000/?purchase=${purchase.id}`,
+    approvalUrl: `${getDashboardUrl()}/?purchase=${purchase.id}`,
     quote,
     order,
     policy
@@ -150,6 +157,10 @@ export async function prepareZecPayment(args: {
 }) {
   const config = loadConfig();
   const state = loadState();
+  const setup = getSetupStatus(config, state);
+  if (setup.setupRequired) {
+    return setupRequiredResult(config, state);
+  }
   const parsed = parsePaymentInput(args);
   const purchase = makeLocalPaymentPurchase({
     amountZec: parsed.amountZec,
@@ -184,7 +195,7 @@ export async function prepareZecPayment(args: {
   return {
     purchaseId: purchase.id,
     status: purchase.status,
-    approvalUrl: `http://localhost:3000/?purchase=${purchase.id}`,
+    approvalUrl: `${getDashboardUrl()}/?purchase=${purchase.id}`,
     payment: {
       amountZec: purchase.amountZec,
       payTo: purchase.payTo,
@@ -203,15 +214,26 @@ export async function startWebPurchaseTool(args: {
   productConstraints?: Record<string, unknown>;
   checkoutHtml?: string;
 }) {
+  const config = loadConfig();
+  const state = loadState();
+  const setup = getSetupStatus(config, state);
+  if (setup.setupRequired) {
+    return setupRequiredResult(config, state);
+  }
   return startWebPurchase(args);
 }
 
 export async function reviewPurchase(args: { purchaseId: string }) {
   const config = loadConfig();
+  const state = loadState();
+  const setup = getSetupStatus(config, state);
+  if (setup.setupRequired) {
+    return setupRequiredResult(config, state);
+  }
   let updated: Purchase | undefined;
 
-  updateState((state) => {
-    const purchase = state.purchases.find((item) => item.id === args.purchaseId);
+  updateState((draft) => {
+    const purchase = draft.purchases.find((item) => item.id === args.purchaseId);
     if (!purchase) {
       throw new Error("Purchase not found.");
     }
@@ -226,15 +248,15 @@ export async function reviewPurchase(args: { purchaseId: string }) {
               recipientLabel: purchase.vendorName
             },
             config,
-            state
+            draft
           )
-        : evaluateQuotePolicy(purchaseToQuote(purchase), config, state);
+        : evaluateQuotePolicy(purchaseToQuote(purchase), config, draft);
     if (!purchase.payment && !["rejected", "expired", "payment_failed", "verification_failed"].includes(purchase.status)) {
       purchase.status = purchase.policy.severity === "blocked" ? "policy_blocked" : "awaiting_approval";
     }
     purchase.updatedAt = new Date().toISOString();
     updated = purchase;
-    appendActivity(state, {
+    appendActivity(draft, {
       kind: "policy",
       title: "Policy refreshed",
       detail: `Purchase is ${purchase.policy.severity}.`,
@@ -271,6 +293,11 @@ export async function approveAndPayPurchaseTool(args: {
   profileId?: string;
 }) {
   const config = loadConfig();
+  const state = loadState();
+  const setup = getSetupStatus(config, state);
+  if (setup.setupRequired) {
+    return setupRequiredResult(config, state);
+  }
   return approveAndPayPurchase(config, {
     purchaseId: args.purchaseId,
     overrideReason: args.overrideReason,

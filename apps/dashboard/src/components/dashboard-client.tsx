@@ -117,6 +117,8 @@ export function DashboardClient() {
     [payload]
   );
   const receipts = payload?.state.purchases.filter((purchase) => purchase.receipt) ?? [];
+  const setupRequired =
+    payload?.state.agentWallet.backend === "zingo-cli" && !payload.state.agentWallet.safety.readyForRealFunding;
 
   async function callAction(label: string, action: () => Promise<Response>) {
     setBusy(label);
@@ -321,6 +323,16 @@ export function DashboardClient() {
         onSweep={() => void sweepWallet()}
       />
 
+      {setupRequired ? (
+        <SetupGatePanel
+          agentWallet={payload.state.agentWallet}
+          config={payload.config}
+          onSettings={() => setView("settings")}
+          onPreflight={() => void runWalletPreflight()}
+          busy={busy}
+        />
+      ) : null}
+
       <nav className="view-tabs" aria-label="Dashboard view">
         <button className={view === "activity" ? "active" : ""} onClick={() => setView("activity")}>
           <Activity size={15} />
@@ -340,6 +352,7 @@ export function DashboardClient() {
           receipts={receipts}
           payload={payload}
           busy={busy}
+          setupRequired={setupRequired}
           onRequestPurchase={requestPurchase}
           onApprove={approve}
           onReject={reject}
@@ -367,6 +380,7 @@ function ActivityView({
   receipts,
   payload,
   busy,
+  setupRequired,
   onRequestPurchase,
   onApprove,
   onReject
@@ -377,6 +391,7 @@ function ActivityView({
   receipts: Purchase[];
   payload: DashboardPayload;
   busy: string | null;
+  setupRequired: boolean;
   onRequestPurchase: () => void;
   onApprove: (purchase: Purchase) => void;
   onReject: (purchase: Purchase) => void;
@@ -390,7 +405,7 @@ function ActivityView({
               <h2>Agent request</h2>
               <p>Natural-language intent converted into a ZEC Harness purchase.</p>
             </div>
-            <button className="primary-button" onClick={onRequestPurchase} disabled={busy !== null}>
+            <button className="primary-button" onClick={onRequestPurchase} disabled={busy !== null || setupRequired}>
               <ShoppingCart size={16} />
               Request quote
             </button>
@@ -407,6 +422,7 @@ function ActivityView({
               onClick={() =>
                 setRequestText("Buy a private AI briefing about Zcash agent payment safety and receipt design.")
               }
+              disabled={setupRequired}
             >
               <Terminal size={15} />
               AI service
@@ -414,6 +430,7 @@ function ActivityView({
             <button
               className="secondary-button"
               onClick={() => setRequestText("Buy and ship the privacy hardware starter kit using my home profile.")}
+              disabled={setupRequired}
             >
               <Package size={15} />
               Physical item
@@ -1103,6 +1120,64 @@ function WalletSafetyPanel({
               <span className="danger-text">If recovery is needed, use your backup with {agentWallet.dataDir}.</span>
             ) : null}
           </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SetupGatePanel({
+  agentWallet,
+  config,
+  busy,
+  onSettings,
+  onPreflight
+}: {
+  agentWallet: AgentWalletState;
+  config: ZecGuardConfig;
+  busy: string | null;
+  onSettings: () => void;
+  onPreflight: () => void;
+}) {
+  const missing = [
+    config.agentWallet.zingoCliPath ? undefined : "Zingo CLI path",
+    config.agentWallet.mainReturnAddress ? undefined : "Main return address",
+    agentWallet.depositAddress ? undefined : "Deposit address",
+    agentWallet.safety.backupCreated ? undefined : "Backup created",
+    agentWallet.safety.backupStoredOffline ? undefined : "Backup stored offline",
+    agentWallet.safety.returnAddressVerified ? undefined : "Return address suffix verified",
+    agentWallet.safety.preflightPassed ? undefined : "Wallet preflight",
+    agentWallet.safety.smallTestDepositObserved ? undefined : "Small test deposit",
+    agentWallet.safety.smallTestSweepCompleted ? undefined : "Small test sweep"
+  ].filter((item): item is string => Boolean(item));
+
+  return (
+    <section className="panel setup-gate-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>First-run wallet setup required</h2>
+          <p>Agent spend preparation is locked until the real-wallet launch guard is complete.</p>
+        </div>
+        <span className="status-tag warn">Setup required</span>
+      </div>
+      <div className="setup-gate-grid">
+        <div className="setup-missing-list">
+          {missing.map((item) => (
+            <span key={item}>
+              <AlertTriangle size={14} />
+              {item}
+            </span>
+          ))}
+        </div>
+        <div className="setup-gate-actions">
+          <button className="secondary-button" onClick={onSettings}>
+            <Settings size={15} />
+            Wallet settings
+          </button>
+          <button className="primary-button" onClick={onPreflight} disabled={busy !== null}>
+            <RefreshCw size={15} />
+            Run preflight
+          </button>
         </div>
       </div>
     </section>

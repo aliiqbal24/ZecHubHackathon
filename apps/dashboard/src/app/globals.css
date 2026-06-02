@@ -339,6 +339,44 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.setup-gate-panel {
+  margin-bottom: 16px;
+  border-color: rgba(244, 183, 40, 0.45);
+}
+
+.setup-gate-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+
+.setup-missing-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup-missing-list span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  border: 1px solid rgba(244, 183, 40, 0.35);
+  border-radius: 8px;
+  background: #12160f;
+  color: var(--zec);
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.setup-gate-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .wallet-safety-grid {
   display: grid;
   grid-template-columns: minmax(260px, 0.8fr) minmax(0, 1.2fr);
@@ -781,6 +819,7 @@ li + li {
   .workspace-grid,
   .lower-grid,
   .wallet-safety-grid,
+  .setup-gate-grid,
   .return-verify-row,
   .approval-body,
   .settings-layout,

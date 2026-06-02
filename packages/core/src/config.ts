@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import YAML from "yaml";
 import { zecGuardConfigSchema } from "./schemas.js";
@@ -27,6 +28,64 @@ export function getZecGuardHome(): string {
 
 export function getConfigPath(): string {
   return process.env.ZECGUARD_CONFIG ?? path.join(/*turbopackIgnore: true*/ findWorkspaceRoot(), "zecguard.config.yaml");
+}
+
+export function getUserZecGuardHome(): string {
+  const platform = process.platform;
+  if (platform === "win32") {
+    return path.join(process.env.APPDATA ?? path.join(os.homedir(), "AppData", "Roaming"), "ZecGuard");
+  }
+  if (platform === "darwin") {
+    return path.join(os.homedir(), "Library", "Application Support", "ZecGuard");
+  }
+  return path.join(process.env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "zecguard");
+}
+
+export function createDefaultConfig(): ZecGuardConfig {
+  return parseConfig({
+    agent: {
+      name: "ZecGuard Agent",
+      walletMode: "external-cli",
+      walletAddress: "configure-in-dashboard",
+      walletPreset: "zingo-cli"
+    },
+    agentWallet: {
+      backend: "zingo-cli",
+      label: "ZecGuard Agent Wallet",
+      walletId: "agent-default",
+      zingoCliPath: "zingo-cli",
+      maxRealWalletBalanceZec: "0.05"
+    },
+    spending: {
+      perTransactionZec: "0.05",
+      dailyZec: "0.15",
+      monthlyZec: "1.00"
+    },
+    approval: {
+      requireEveryPayment: true,
+      allowOneTimeOverride: true
+    },
+    vendors: {
+      allowUnknownVendors: true,
+      trusted: []
+    },
+    privacy: {
+      showPrivacyLabel: true
+    },
+    verification: {
+      mode: "mock",
+      minConfirmations: 1
+    },
+    shippingProfiles: []
+  });
+}
+
+export function ensureConfig(): ZecGuardConfig {
+  const configPath = getConfigPath();
+  if (fs.existsSync(configPath)) {
+    return loadConfig();
+  }
+  return writeConfig(createDefaultConfig());
 }
 
 export function loadConfig(): ZecGuardConfig {

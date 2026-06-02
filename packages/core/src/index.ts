@@ -8,6 +8,7 @@ export * from "./policy.js";
 export * from "./receipt.js";
 export * from "./wallet.js";
 export * from "./safety.js";
+export * from "./setup.js";
 export * from "./harness.js";
 export * from "./verification.js";
 export * from "./payment.js";

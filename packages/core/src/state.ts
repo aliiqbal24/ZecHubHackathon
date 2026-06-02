@@ -20,7 +20,7 @@ import type {
 
 const INITIAL_BALANCE_ZEC = "0.25";
 
-function statePath(): string {
+export function getStatePath(): string {
   return process.env.ZECGUARD_STATE_PATH ?? path.join(getZecGuardHome(), "state.json");
 }
 
@@ -70,7 +70,7 @@ export function createInitialState(): ZecGuardState {
 }
 
 export function loadState(): ZecGuardState {
-  const file = statePath();
+  const file = getStatePath();
   if (!fs.existsSync(file)) {
     const initial = createInitialState();
     saveState(initial);
@@ -81,7 +81,7 @@ export function loadState(): ZecGuardState {
 }
 
 export function saveState(state: ZecGuardState): void {
-  const file = statePath();
+  const file = getStatePath();
   recalculateWalletSpend(state);
   syncLegacyWallet(state, state.wallet.balanceSource);
   fs.mkdirSync(path.dirname(file), { recursive: true });
