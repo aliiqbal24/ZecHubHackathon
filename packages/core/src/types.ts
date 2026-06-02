@@ -368,3 +368,69 @@ export interface ZecGuardState {
   vendorOrders: VendorOrder[];
   paymentLedger: PaymentLedgerEntry[];
 }
+
+export type PurchaseSessionStatus =
+  | "invoice_found"
+  | "needs_user_input"
+  | "invoice_unstable"
+  | "not_supported";
+
+export type PurchaseSessionAction =
+  | "review_purchase"
+  | "provide_user_input"
+  | "choose_vendor"
+  | "retry_checkout"
+  | "no_zec_invoice_found";
+
+export interface ZecInvoice {
+  payTo: string;
+  amountZec: string;
+  memo: string;
+  expiresAt?: string;
+  paymentUri?: string;
+  orderUrl?: string;
+  statusUrl?: string;
+  source: "zip321" | "visible-text" | "qr-payload";
+}
+
+export interface VendorProfile {
+  id: string;
+  hostPattern: string;
+  displayName: string;
+  trusted?: boolean;
+  paymentLabels?: string[];
+  checkoutUrlPatterns?: string[];
+  fulfillmentSelectors?: string[];
+  blockedCountries?: string[];
+}
+
+export interface ContactRecord {
+  name: string;
+  aliases: string[];
+  address: string;
+  trusted: boolean;
+}
+
+export interface StartWebPurchaseInput {
+  request: string;
+  targetUrl?: string;
+  vendorHint?: string;
+  productConstraints?: Record<string, unknown>;
+  checkoutHtml?: string;
+}
+
+export interface StartWebPurchaseResult {
+  sessionId: string;
+  checkoutStatus: PurchaseSessionStatus;
+  nextAction: PurchaseSessionAction;
+  needsUserInput?: {
+    field: string;
+    reason: string;
+  };
+  purchaseId?: string;
+  approvalUrl?: string;
+  invoice?: ZecInvoice;
+  policy?: PolicyResult;
+  vendorProfile?: VendorProfile;
+  notes: string[];
+}

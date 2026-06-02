@@ -32,6 +32,7 @@ Tools:
 
 - `discover_zec_vendor`
 - `request_quote`
+- `start_web_purchase`
 - `prepare_zec_payment`
 - `review_purchase`
 - `approve_and_pay_purchase`
@@ -84,6 +85,16 @@ curl -X POST http://localhost:3010/mcp/call ^
   -H "content-type: application/json" ^
   -d "{\"name\":\"prepare_zec_payment\",\"args\":{\"paymentUri\":\"zcash:u1recipient0000000000000000000000000000000000000000?amount=0.003&memo=invoice-123\",\"recipientLabel\":\"Report vendor\"}}"
 ```
+
+Start a web checkout or P2P purchase session:
+
+```bash
+curl -X POST http://localhost:3010/mcp/call ^
+  -H "content-type: application/json" ^
+  -d "{\"name\":\"start_web_purchase\",\"args\":{\"request\":\"buy a small gift card with Zcash\",\"targetUrl\":\"https://www.coinsbee.com/checkout\",\"vendorHint\":\"Coinsbee\"}}"
+```
+
+`start_web_purchase` extracts a ZIP-321 URI, visible Zcash address + amount, or QR payload text and creates an approval request. It never sends funds. If checkout needs email, country, login, captcha, or another unavailable field first, it returns `needs_user_input`.
 
 Review the exact spend before approval:
 

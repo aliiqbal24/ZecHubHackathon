@@ -82,6 +82,28 @@ server.registerTool(
 );
 
 server.registerTool(
+  "start_web_purchase",
+  {
+    title: "Start Web Purchase",
+    description: "Start a vendor-agnostic web checkout or P2P ZEC purchase session, extract an invoice, and create an approval request without sending funds.",
+    annotations: {
+      readOnlyHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    },
+    inputSchema: {
+      request: z.string(),
+      targetUrl: z.string().url().optional(),
+      vendorHint: z.string().optional(),
+      productConstraints: z.record(z.string(), z.unknown()).optional(),
+      checkoutHtml: z.string().optional()
+    }
+  },
+  async ({ request, targetUrl, vendorHint, productConstraints, checkoutHtml }) =>
+    textResult(await callTool("start_web_purchase", { request, targetUrl, vendorHint, productConstraints, checkoutHtml }))
+);
+
+server.registerTool(
   "review_purchase",
   {
     title: "Review Purchase",

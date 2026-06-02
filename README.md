@@ -1,6 +1,6 @@
 # ZecGuard
 
-ZecGuard is a local prototype for private, policy-governed AI agent purchases over Zcash. An agent can request a purchase from a vendor that exposes a ZEC Harness, or prepare a generic ZIP-321/raw ZEC payment like a wallet send. ZecGuard checks policy, shows the exact spend and conditions, requires human approval, sends payment through a wallet adapter, and stores either a signed vendor receipt or a local payment receipt.
+ZecGuard is a local prototype for private, policy-governed AI agent purchases over Zcash. An agent can request a purchase from a vendor that exposes a ZEC Harness, start a generic web checkout that accepts ZEC, resolve a local P2P contact, or prepare a generic ZIP-321/raw ZEC payment like a wallet send. ZecGuard checks policy, shows the exact spend and conditions, requires human approval, sends payment through a wallet adapter, and stores either a signed vendor receipt or a local payment receipt.
 
 ## What Is Implemented
 
@@ -8,6 +8,8 @@ ZecGuard is a local prototype for private, policy-governed AI agent purchases ov
 - MCP-capable agent server with HTTP tools on `http://localhost:3010`
 - Reference ZEC Harness vendor on `http://localhost:3020`
 - Generic ZEC payment preparation from ZIP-321 URIs or raw address/amount/memo inputs
+- Vendor-agnostic `start_web_purchase` MCP flow for generic web checkout invoice extraction
+- Local P2P contact resolution from `.zecguard/contacts.md`
 - Shared TypeScript protocol, policy engine, state machine, mock wallet, and receipt signing
 - Natural-language purchase request flow
 - Digital-service and physical-goods demo purchases
@@ -64,6 +66,7 @@ Available tools:
 
 - `discover_zec_vendor`
 - `request_quote`
+- `start_web_purchase`
 - `prepare_zec_payment`
 - `review_purchase`
 - `approve_and_pay_purchase`
@@ -72,11 +75,35 @@ Available tools:
 
 `approve_and_pay_purchase` is marked destructive, non-idempotent, and open-world in MCP metadata. Agents should call it only after explicit user approval; MCP clients should keep their permission prompt enabled for that tool. Dashboard approval remains available as the safer fallback.
 
+`start_web_purchase` is non-destructive. It can start a browser-checkout-style session from a natural-language request, optional target URL/vendor hint, and optional checkout HTML fixture. It extracts ZIP-321 URIs, visible Zcash address + amount pairs, or QR payload text, creates a normal approval request, and returns `needs_user_input` when checkout requires email, country, login, captcha, or another missing user action. It never sends funds.
+
 ## Payment Tiers
 
 Tier 1 ZEC Harness vendors support quote, order reservation, policy review, payment submission, vendor verification, fulfillment, and signed private receipts.
 
 Tier 2 generic ZEC payments support "pay this ZEC address/payment URI" flows. ZecGuard can parse a ZIP-321 URI or raw address/amount/memo, run spending and memo policy checks, submit payment after approval, and store a local receipt. Automatic fulfillment is not available unless the recipient exposes a compatible verification API.
+
+Tier 3 web checkout sessions support generic ZEC invoice extraction from checkout pages. Vendor profiles such as Coinsbee are only hints for selectors, trust labels, and fulfillment cues; payment execution still goes through the same review and approval path.
+
+P2P requests such as `send Ali 0.003 ZEC` resolve aliases from `.zecguard/contacts.md`. Missing or ambiguous contacts pause with `needs_user_input`.
+
+## Web Purchase Demos
+
+Run the MCP server first:
+
+```bash
+npm run dev:mcp
+```
+
+Then in another terminal:
+
+```bash
+npm run demo:agent-p2p
+npm run demo:web-purchase
+npm run demo:coinsbee
+```
+
+The Coinsbee command is a dry-run fixture by default. Set `COINSBEE_CHECKOUT_HTML` or `COINSBEE_CHECKOUT_URL` to test a captured/live checkout page up to invoice extraction. Payment still requires explicit approval through `approve_and_pay_purchase` or the dashboard.
 
 ## ZEC Harness Vendor Contract
 

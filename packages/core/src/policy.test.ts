@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateQuotePolicy } from "./policy.js";
+import { canAutopayByPolicy, evaluateGenericPaymentPolicy, evaluateQuotePolicy } from "./policy.js";
 import { zecToZats } from "./money.js";
 import { createDefaultAgentWalletSafety } from "./safety.js";
 import type { QuoteResponse, ZecGuardConfig, ZecGuardState } from "./types.js";
@@ -80,5 +80,43 @@ describe("policy", () => {
   it("warns for unknown vendors when allowed", () => {
     const result = evaluateQuotePolicy(quote({ vendorUrl: "http://new.test" }), config, state);
     expect(result.severity).toBe("warn");
+  });
+
+  it("allows autopay eligibility only for clean trusted generic payments when approval is not required", () => {
+    const result = evaluateGenericPaymentPolicy(
+      {
+        amountZec: "0.003",
+        payTo: "u1contact00000000000000000000000000000000000000000",
+        memo: "send Ali 0.003 ZEC",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        recipientLabel: "Ali",
+        recipientTrusted: true,
+        fulfillmentKnown: true,
+        invoiceStable: true
+      },
+      { ...config, approval: { ...config.approval, requireEveryPayment: false } },
+      state
+    );
+
+    expect(result.severity).toBe("pass");
+    expect(canAutopayByPolicy(result, { ...config, approval: { ...config.approval, requireEveryPayment: false } })).toBe(true);
+  });
+
+  it("blocks generic payments when an extracted invoice is unstable", () => {
+    const result = evaluateGenericPaymentPolicy(
+      {
+        amountZec: "0.003",
+        payTo: "u1contact00000000000000000000000000000000000000000",
+        memo: "checkout",
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        recipientTrusted: true,
+        fulfillmentKnown: true,
+        invoiceStable: false
+      },
+      config,
+      state
+    );
+
+    expect(result.severity).toBe("blocked");
   });
 });

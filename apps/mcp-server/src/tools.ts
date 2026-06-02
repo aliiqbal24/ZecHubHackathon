@@ -11,6 +11,7 @@ import {
   makeLocalPaymentPurchase,
   reserveVendorOrder,
   requestVendorQuote,
+  startWebPurchase,
   upsertPurchase,
   updateState,
   verifyReceipt,
@@ -34,6 +35,11 @@ export const toolDefinitions = [
     name: "prepare_zec_payment",
     description: "Prepare a generic ZEC payment from a ZIP-321 URI or raw address, amount, and memo.",
     annotations: { readOnlyHint: false, idempotentHint: false }
+  },
+  {
+    name: "start_web_purchase",
+    description: "Start a vendor-agnostic web checkout or P2P ZEC purchase session, extract an invoice, and create an approval request without sending funds.",
+    annotations: { readOnlyHint: false, idempotentHint: false, openWorldHint: true }
   },
   {
     name: "review_purchase",
@@ -188,6 +194,16 @@ export async function prepareZecPayment(args: {
     },
     policy: purchase.policy
   };
+}
+
+export async function startWebPurchaseTool(args: {
+  request: string;
+  targetUrl?: string;
+  vendorHint?: string;
+  productConstraints?: Record<string, unknown>;
+  checkoutHtml?: string;
+}) {
+  return startWebPurchase(args);
 }
 
 export async function reviewPurchase(args: { purchaseId: string }) {
@@ -353,6 +369,17 @@ export async function callTool(name: string, args: Record<string, unknown>) {
         memo: typeof args.memo === "string" ? args.memo : undefined,
         recipientLabel: typeof args.recipientLabel === "string" ? args.recipientLabel : undefined,
         expiresAt: typeof args.expiresAt === "string" ? args.expiresAt : undefined
+      });
+    case "start_web_purchase":
+      return startWebPurchaseTool({
+        request: String(args.request ?? ""),
+        targetUrl: typeof args.targetUrl === "string" ? args.targetUrl : undefined,
+        vendorHint: typeof args.vendorHint === "string" ? args.vendorHint : undefined,
+        productConstraints:
+          typeof args.productConstraints === "object" && args.productConstraints !== null
+            ? (args.productConstraints as Record<string, unknown>)
+            : undefined,
+        checkoutHtml: typeof args.checkoutHtml === "string" ? args.checkoutHtml : undefined
       });
     case "prepare_purchase":
     case "review_purchase":

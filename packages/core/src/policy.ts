@@ -163,6 +163,10 @@ export interface GenericPaymentPolicyInput {
   memo: string;
   expiresAt: string;
   recipientLabel?: string;
+  recipientTrusted?: boolean;
+  fulfillmentKnown?: boolean;
+  invoiceStable?: boolean;
+  warningIds?: string[];
 }
 
 export function evaluateGenericPaymentPolicy(
@@ -179,8 +183,11 @@ export function evaluateGenericPaymentPolicy(
   const memoLooksSensitive =
     /[^\s@]+@[^\s@]+\.[^\s@]+/.test(payment.memo) ||
     /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(payment.memo);
+  const recipientTrusted = payment.recipientTrusted === true;
+  const fulfillmentKnown = payment.fulfillmentKnown === true;
+  const invoiceStable = payment.invoiceStable !== false;
 
-  const checks: PolicyCheck[] = [
+  const baseChecks: PolicyCheck[] = [
     amountZats > 0
       ? {
           id: "amount-positive",
@@ -285,19 +292,38 @@ export function evaluateGenericPaymentPolicy(
           severity: "blocked",
           detail: "Recipient payment address is missing or malformed."
         },
+    invoiceStable
+      ? {
+          id: "invoice-stability",
+          label: "Invoice stability",
+          severity: "pass",
+          detail: "Invoice amount and address were stable during extraction."
+        }
+      : {
+          id: "invoice-stability",
+          label: "Invoice stability",
+          severity: "blocked",
+          detail: "Invoice amount or address changed during extraction."
+        },
     {
       id: "recipient",
       label: "Recipient trust",
-      severity: "warn",
-      detail: payment.recipientLabel
-        ? `Generic ZEC recipient "${payment.recipientLabel}" is not a ZEC Harness vendor.`
-        : "Generic ZEC recipient is not a ZEC Harness vendor."
+      severity: recipientTrusted ? "pass" : "warn",
+      detail: recipientTrusted
+        ? payment.recipientLabel
+          ? `"${payment.recipientLabel}" is trusted by local policy.`
+          : "Recipient is trusted by local policy."
+        : payment.recipientLabel
+          ? `Generic ZEC recipient "${payment.recipientLabel}" is not trusted by local policy.`
+          : "Generic ZEC recipient is not trusted by local policy."
     },
     {
       id: "fulfillment",
       label: "Fulfillment",
-      severity: "warn",
-      detail: "Generic ZEC payments only produce a local receipt unless the recipient exposes a verification API."
+      severity: fulfillmentKnown ? "pass" : "warn",
+      detail: fulfillmentKnown
+        ? "Fulfillment or contact context is known for this payment."
+        : "Generic ZEC payments only produce a local receipt unless the recipient exposes a verification API."
     },
     {
       id: "approval",
@@ -308,6 +334,11 @@ export function evaluateGenericPaymentPolicy(
         : "Autonomous payment is allowed by policy."
     }
   ];
+  const checks: PolicyCheck[] = baseChecks.map((check) =>
+    payment.warningIds?.includes(check.id) && check.severity === "pass"
+      ? { ...check, severity: "warn" as const, detail: `${check.detail} Review required by checkout warning.` }
+      : check
+  );
 
   return {
     severity: mostSevere(checks),
@@ -318,4 +349,8 @@ export function evaluateGenericPaymentPolicy(
 
 export function canApprovePurchase(purchase: Purchase): boolean {
   return purchase.status === "awaiting_approval" || purchase.status === "policy_checked";
+}
+
+export function canAutopayByPolicy(policy: PolicyResult, config: ZecGuardConfig): boolean {
+  return !config.approval.requireEveryPayment && policy.severity === "pass" && !policy.requiresApproval;
 }

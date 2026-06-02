@@ -49,7 +49,10 @@ function refreshPolicy(purchase: Purchase, config: ZecGuardConfig, state: Return
         payTo: purchase.payTo,
         memo: purchase.memo,
         expiresAt: purchase.expiresAt,
-        recipientLabel: purchase.vendorName
+        recipientLabel: purchase.vendorName,
+        recipientTrusted: purchase.policy.checks.find((check) => check.id === "recipient")?.severity === "pass",
+        fulfillmentKnown: purchase.policy.checks.find((check) => check.id === "fulfillment")?.severity === "pass",
+        invoiceStable: purchase.policy.checks.find((check) => check.id === "invoice-stability")?.severity !== "blocked"
       },
       config,
       state
@@ -331,6 +334,10 @@ export function makeLocalPaymentPurchase(args: {
   recipientLabel?: string;
   expiresAt?: string;
   sourceUri?: string;
+  itemTitle?: string;
+  recipientTrusted?: boolean;
+  fulfillmentKnown?: boolean;
+  invoiceStable?: boolean;
   config: ZecGuardConfig;
   state: ReturnType<typeof loadState>;
 }): Purchase {
@@ -343,7 +350,10 @@ export function makeLocalPaymentPurchase(args: {
       payTo: args.payTo,
       memo: args.memo,
       expiresAt,
-      recipientLabel: args.recipientLabel
+      recipientLabel: args.recipientLabel,
+      recipientTrusted: args.recipientTrusted,
+      fulfillmentKnown: args.fulfillmentKnown,
+      invoiceStable: args.invoiceStable
     },
     args.config,
     args.state
@@ -358,7 +368,7 @@ export function makeLocalPaymentPurchase(args: {
     vendorUrl: args.sourceUri ?? "zcash:generic",
     vendorName: args.recipientLabel ?? "Generic ZEC recipient",
     itemId: "generic-zec-payment",
-    itemTitle: "Generic ZEC payment",
+    itemTitle: args.itemTitle ?? "Generic ZEC payment",
     amountZec: args.amountZec,
     amountZats: zecToZats(args.amountZec),
     fulfillmentType: "service",

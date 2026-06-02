@@ -11,3 +11,6 @@ export * from "./safety.js";
 export * from "./harness.js";
 export * from "./verification.js";
 export * from "./payment.js";
+export * from "./invoice.js";
+export * from "./contacts.js";
+export * from "./checkout.js";
