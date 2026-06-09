@@ -91,6 +91,7 @@ Real wallet details are in `REAL_WALLET.md`.
 
 ## Docs
 
+- `NORTHSTAR.md`: mission, product promise, safety principles, and milestones
 - `ZEC_HARNESS.md`: vendor protocol
 - `AGENT_SETUP.md`: MCP and agent setup
 - `REAL_WALLET.md`: external wallet adapter
