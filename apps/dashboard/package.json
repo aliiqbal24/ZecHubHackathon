@@ -1,5 +1,5 @@
 {
-  "name": "@zecguard/dashboard",
+  "name": "@agentzcash/dashboard",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "start": "next start --port 3000"
   },
   "dependencies": {
-    "@zecguard/core": "*",
+    "@agentzcash/core": "*",
     "lucide-react": "^0.562.0",
     "next": "latest",
     "react": "latest",

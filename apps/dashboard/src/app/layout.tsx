@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "ZecGuard",
+  title: "AgentZcash",
   description: "Private ZEC spending control for AI agents"
 };
 

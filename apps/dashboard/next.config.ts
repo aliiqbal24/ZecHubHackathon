@@ -3,7 +3,7 @@ import path from "node:path";
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(process.cwd(), "../.."),
-  serverExternalPackages: ["@zecguard/core"]
+  serverExternalPackages: ["@agentzcash/core"]
 };
 
 export default nextConfig;

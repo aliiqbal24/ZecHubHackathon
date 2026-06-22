@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { appendActivity, loadState, saveState } from "@zecguard/core";
+import { appendActivity, loadState, saveState } from "@agentzcash/core";
 
 export const dynamic = "force-dynamic";
 

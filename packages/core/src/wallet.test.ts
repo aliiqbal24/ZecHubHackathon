@@ -3,20 +3,22 @@ import {
   buildExternalCliInvocation,
   parseBalanceOutput,
   parseCliError,
+  parseReceiveAddressOutput,
   parseTransactionOutput,
   resolveCliCommands,
-  WALLET_PRESETS
+  WALLET_PRESETS,
+  looksLikeShieldedZcashAddress
 } from "./wallet.js";
 import { zecToZats } from "./money.js";
-import type { ZecGuardConfig } from "./types.js";
+import type { AgentZcashConfig } from "./types.js";
 
 const purchase = {
   payTo: "u1vendor000000000000000000000000000000000000000000",
   amountZats: zecToZats("0.003"),
-  memo: "ZECGUARD:q_123:ai-brief"
+  memo: "AGENTZCASH:q_123:verified-demo-service"
 };
 
-function makeConfig(overrides: Partial<ZecGuardConfig["agent"]> = {}): ZecGuardConfig {
+function makeConfig(overrides: Partial<AgentZcashConfig["agent"]> = {}): AgentZcashConfig {
   return {
     agent: {
       name: "Test",
@@ -48,9 +50,9 @@ describe("external wallet invocation", () => {
   });
 
   it("falls back to generic appended flags", () => {
-    const result = buildExternalCliInvocation("mock-wallet send", purchase);
+    const result = buildExternalCliInvocation("wallet-cli send", purchase);
     expect(result).toEqual({
-      command: "mock-wallet",
+      command: "wallet-cli",
       args: ["send", "--to", purchase.payTo, "--amount", "0.003", "--memo", purchase.memo]
     });
   });
@@ -75,7 +77,8 @@ describe("wallet presets", () => {
     const config = makeConfig({ walletPreset: "zingo-cli" });
     const resolved = resolveCliCommands(config);
     expect(resolved.sendCommand).toContain("zingo-cli");
-    expect(resolved.balanceCommand).toBe("zingo-cli balance");
+    expect(resolved.sendCommand).toContain("--data-dir");
+    expect(resolved.balanceCommand).toContain("--waitsync balance");
     expect(resolved.txCheckCommand).toContain("zingo-cli");
   });
 
@@ -93,7 +96,7 @@ describe("wallet presets", () => {
     });
     const resolved = resolveCliCommands(config);
     expect(resolved.sendCommand).toBe("custom-send {to} {amount}");
-    expect(resolved.balanceCommand).toBe("zingo-cli balance");
+    expect(resolved.balanceCommand).toContain("--waitsync balance");
   });
 
   it("returns undefined when no preset and no explicit command", () => {
@@ -106,6 +109,30 @@ describe("wallet presets", () => {
 
   it("all presets are defined", () => {
     expect(Object.keys(WALLET_PRESETS)).toEqual(["zodl", "zingo-cli", "zallet"]);
+  });
+});
+
+describe("parseReceiveAddressOutput", () => {
+  it("parses unified address from text", () => {
+    expect(parseReceiveAddressOutput("Address 0: u1abcdefghijklmnopqrstuvwxyz1234567890\n")).toMatch(/^u1/);
+  });
+
+  it("parses address from JSON object", () => {
+    expect(parseReceiveAddressOutput('{"address":"u1abcdefghijklmnopqrstuvwxyz1234567890"}')).toMatch(/^u1/);
+  });
+});
+
+describe("address classification", () => {
+  it("accepts shielded-capable addresses for direct transfers", () => {
+    expect(looksLikeShieldedZcashAddress("u1abcdefghijklmnopqrstuvwxyz1234567890")).toBe(true);
+    expect(looksLikeShieldedZcashAddress("utestabcdefghijklmnopqrstuvwxyz1234567890")).toBe(true);
+    expect(looksLikeShieldedZcashAddress("zsabcdefghijklmnopqrstuvwxyz1234567890")).toBe(true);
+    expect(looksLikeShieldedZcashAddress("ztestsaplingabcdefghijklmnopqrstuvwxyz1234567890")).toBe(true);
+  });
+
+  it("rejects transparent-only addresses for direct transfers", () => {
+    expect(looksLikeShieldedZcashAddress("t1abcdefghijklmnopqrstuvwxyz1234567890")).toBe(false);
+    expect(looksLikeShieldedZcashAddress("t3abcdefghijklmnopqrstuvwxyz1234567890")).toBe(false);
   });
 });
 

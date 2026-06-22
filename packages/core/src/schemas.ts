@@ -64,3 +64,13 @@ export const orderResponseSchema = z.object({
   memo: z.string(),
   expiresAt: z.string()
 });
+
+export const directTransferRequestSchema = z.object({
+  recipientName: z.string().min(1),
+  amountZec: z.string().min(1),
+  address: z.string().min(20),
+  memo: z.string().max(512).default(""),
+  purpose: z.string().default(""),
+  evidenceUrls: z.array(z.string().url()).default([]),
+  agentVerificationNotes: z.string().default("")
+});

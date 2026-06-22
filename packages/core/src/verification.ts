@@ -1,27 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { findMatchingLedgerPayment, loadState } from "./state.js";
-import type { VerifiedPayment, VendorOrder, ZecGuardConfig } from "./types.js";
+import type { VerifiedPayment, VendorOrder, AgentZcashConfig } from "./types.js";
 
 const execFileAsync = promisify(execFile);
 
 export interface PaymentVerifier {
-  verifyPayment(order: VendorOrder): Promise<VerifiedPayment | null>;
-}
-
-export class MockPaymentVerifier implements PaymentVerifier {
-  async verifyPayment(order: VendorOrder): Promise<VerifiedPayment | null> {
-    const state = loadState();
-    const entry = findMatchingLedgerPayment(state, order);
-    if (!entry) return null;
-    return {
-      txId: entry.txId,
-      amountZec: entry.amountZec,
-      memo: entry.memo,
-      confirmations: 100,
-      matchedAt: new Date().toISOString()
-    };
-  }
+  verifyPayment(order: VendorOrder, txId?: string): Promise<VerifiedPayment | null>;
 }
 
 export class ExternalCliVerifier implements PaymentVerifier {
@@ -84,14 +68,8 @@ export class LightwalletVerifier implements PaymentVerifier {
     private readonly minConfirmations: number
   ) {}
 
-  async verifyPayment(order: VendorOrder): Promise<VerifiedPayment | null> {
-    const state = loadState();
-    const ledgerEntry = findMatchingLedgerPayment(state, order);
-    if (!ledgerEntry) return null;
-
-    const txId = ledgerEntry.txId;
-    if (txId.startsWith("mock-zec-")) return null;
-
+  async verifyPayment(order: VendorOrder, txId?: string): Promise<VerifiedPayment | null> {
+    if (!txId) return null;
     try {
       const baseUrl = this.lightwalletdUrl.replace(/\/$/, "");
       const response = await fetch(`${baseUrl}/v1/gettransaction`, {
@@ -112,8 +90,8 @@ export class LightwalletVerifier implements PaymentVerifier {
 
       return {
         txId,
-        amountZec: ledgerEntry.amountZec,
-        memo: ledgerEntry.memo,
+        amountZec: order.quote.amountZec,
+        memo: order.quote.memo,
         confirmations,
         blockHeight: data.height,
         matchedAt: new Date().toISOString()
@@ -124,8 +102,8 @@ export class LightwalletVerifier implements PaymentVerifier {
   }
 }
 
-export function createPaymentVerifier(config: ZecGuardConfig): PaymentVerifier {
-  const verification = config.verification ?? { mode: "mock" as const, minConfirmations: 1 };
+export function createPaymentVerifier(config: AgentZcashConfig): PaymentVerifier {
+  const verification = config.verification ?? { mode: "external-cli" as const, minConfirmations: 1 };
 
   switch (verification.mode) {
     case "external-cli":
@@ -140,9 +118,8 @@ export function createPaymentVerifier(config: ZecGuardConfig): PaymentVerifier {
       }
       return new LightwalletVerifier(verification.lightwalletdUrl, verification.minConfirmations);
 
-    case "mock":
     default:
-      return new MockPaymentVerifier();
+      throw new Error("Unsupported verification mode. Fake payment verification is disabled.");
   }
 }
 

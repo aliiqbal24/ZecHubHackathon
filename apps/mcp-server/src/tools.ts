@@ -1,58 +1,48 @@
 import { randomUUID } from "node:crypto";
 import {
   appendActivity,
-  approveAndPayPurchase,
+  directTransferRequestSchema,
   discoverVendor,
-  evaluateGenericPaymentPolicy,
+  evaluateDirectTransferPolicy,
   evaluateQuotePolicy,
   loadConfig,
   loadState,
-  makeLocalPaymentPurchase,
+  refreshPendingDirectTransferConfirmations,
   reserveVendorOrder,
   requestVendorQuote,
+  saveState,
   upsertPurchase,
   updateState,
   verifyReceipt,
   zecToZats,
   type Purchase,
   type QuoteResponse
-} from "@zecguard/core";
+} from "@agentzcash/core";
 
 export const toolDefinitions = [
   {
     name: "discover_zec_vendor",
-    description: "Read a vendor's ZEC Harness manifest and product list.",
-    annotations: { readOnlyHint: true }
+    description: "Read a vendor's ZEC Harness manifest and product list."
   },
   {
     name: "request_quote",
-    description: "Request a ZEC-priced quote, reserve an order, and create a user approval request.",
-    annotations: { readOnlyHint: false, idempotentHint: false }
+    description: "Request a ZEC-priced quote, reserve an order, and create a user approval request."
   },
   {
-    name: "prepare_zec_payment",
-    description: "Prepare a generic ZEC payment from a ZIP-321 URI or raw address, amount, and memo.",
-    annotations: { readOnlyHint: false, idempotentHint: false }
+    name: "prepare_purchase",
+    description: "Re-run policy checks for a pending purchase."
   },
   {
-    name: "review_purchase",
-    description: "Review exact payment details, policy checks, privacy/PII, expiry, and approval wording.",
-    annotations: { readOnlyHint: false }
-  },
-  {
-    name: "approve_and_pay_purchase",
-    description: "Destructive, non-idempotent tool that submits an approved ZEC payment.",
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
+    name: "prepare_direct_transfer",
+    description: "Queue a direct ZEC transfer for dashboard approval. This never approves or sends payment."
   },
   {
     name: "claim_fulfillment",
-    description: "Check a vendor order and store fulfillment/receipt once paid.",
-    annotations: { readOnlyHint: false, idempotentHint: true }
+    description: "Check a vendor order and store fulfillment/receipt once paid."
   },
   {
-    name: "get_zecguard_state",
-    description: "Inspect wallet, pending approvals, activity, and receipts.",
-    annotations: { readOnlyHint: true }
+    name: "get_agentzcash_state",
+    description: "Inspect wallet, pending approvals, activity, and receipts."
   }
 ];
 
@@ -77,7 +67,7 @@ export async function requestQuote(args: {
 
   const purchase: Purchase = {
     id: `p_${randomUUID()}`,
-    source: "harness",
+    kind: "vendor_purchase",
     status: policy.severity === "blocked" ? "policy_blocked" : "awaiting_approval",
     createdAt: now,
     updatedAt: now,
@@ -103,7 +93,7 @@ export async function requestQuote(args: {
     upsertPurchase(draft, purchase);
     appendActivity(draft, {
       kind: "quote",
-      title: "Agent requested purchase",
+      title: "Purchase requested by agent",
       detail: `${quote.itemTitle} from ${quote.vendorName} for ${quote.amountZec} ZEC.`,
       purchaseId: purchase.id
     });
@@ -128,43 +118,64 @@ export async function requestQuote(args: {
   };
 }
 
-export async function prepareZecPayment(args: {
-  paymentUri?: string;
-  address?: string;
-  amountZec?: string;
-  memo?: string;
-  recipientLabel?: string;
-  expiresAt?: string;
-}) {
+export async function prepareDirectTransfer(args: Record<string, unknown>) {
+  const request = directTransferRequestSchema.parse(args);
   const config = loadConfig();
   const state = loadState();
-  const parsed = parsePaymentInput(args);
-  const purchase = makeLocalPaymentPurchase({
-    amountZec: parsed.amountZec,
-    payTo: parsed.address,
-    memo: parsed.memo,
-    recipientLabel: args.recipientLabel,
-    expiresAt: args.expiresAt,
-    sourceUri: args.paymentUri,
-    config,
-    state
-  });
+  const policy = evaluateDirectTransferPolicy(request, config, state);
+  const now = new Date().toISOString();
+  const evidenceSummary = request.evidenceUrls.length
+    ? request.evidenceUrls.join(", ")
+    : request.agentVerificationNotes || "No external evidence supplied.";
+
+  const purchase: Purchase = {
+    id: `p_${randomUUID()}`,
+    kind: "direct_transfer",
+    status: policy.severity === "blocked" ? "policy_blocked" : "awaiting_approval",
+    createdAt: now,
+    updatedAt: now,
+    vendorUrl: "direct:zec",
+    vendorName: request.recipientName,
+    itemId: "direct-transfer",
+    itemTitle: `Direct transfer to ${request.recipientName}`,
+    amountZec: request.amountZec,
+    amountZats: zecToZats(request.amountZec),
+    fulfillmentType: "service",
+    terms: [
+      request.purpose || "Direct ZEC transfer requested by agent.",
+      `Evidence: ${evidenceSummary}`
+    ],
+    requiredPii: [],
+    privacy: {
+      label: "Shielded ZEC",
+      grade: "strong",
+      leaks: ["Recipient address and amount are shown for approval."],
+      summary: "AgentZcash queues the transfer locally; only dashboard approval can submit it."
+    },
+    policy,
+    quoteId: `direct_${randomUUID()}`,
+    orderId: `direct_${randomUUID()}`,
+    payTo: request.address,
+    memo: request.memo,
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    directTransfer: request
+  };
 
   updateState((draft) => {
     upsertPurchase(draft, purchase);
     appendActivity(draft, {
-      kind: "quote",
-      title: "Agent prepared generic ZEC payment",
-      detail: `${purchase.amountZec} ZEC to ${purchase.payTo}.`,
+      kind: "transfer",
+      title: "Direct transfer requested by agent",
+      detail: `${request.amountZec} ZEC to ${request.recipientName} is waiting for user approval.`,
       purchaseId: purchase.id
     });
     appendActivity(draft, {
       kind: "policy",
-      title: purchase.policy.severity === "blocked" ? "Policy blocked payment" : "Policy checked payment",
+      title: policy.severity === "blocked" ? "Policy blocked direct transfer" : "Policy checked direct transfer",
       detail:
-        purchase.policy.severity === "blocked"
-          ? "Payment cannot proceed without a policy change or override."
-          : "Payment is waiting for user approval.",
+        policy.severity === "blocked"
+          ? "Transfer cannot proceed without a policy change or override."
+          : "Transfer is waiting for user approval.",
       purchaseId: purchase.id
     });
   });
@@ -173,18 +184,19 @@ export async function prepareZecPayment(args: {
     purchaseId: purchase.id,
     status: purchase.status,
     approvalUrl: `http://localhost:3000/?purchase=${purchase.id}`,
-    payment: {
-      amountZec: purchase.amountZec,
-      payTo: purchase.payTo,
-      memo: purchase.memo,
-      recipientLabel: purchase.vendorName,
-      expiresAt: purchase.expiresAt
-    },
-    policy: purchase.policy
+    policy,
+    transfer: {
+      recipientName: request.recipientName,
+      address: request.address,
+      amountZec: request.amountZec,
+      memo: request.memo,
+      purpose: request.purpose,
+      evidenceSummary
+    }
   };
 }
 
-export async function reviewPurchase(args: { purchaseId: string }) {
+export async function preparePurchase(args: { purchaseId: string }) {
   const config = loadConfig();
   let updated: Purchase | undefined;
 
@@ -194,22 +206,10 @@ export async function reviewPurchase(args: { purchaseId: string }) {
       throw new Error("Purchase not found.");
     }
     purchase.policy =
-      purchase.source === "generic"
-        ? evaluateGenericPaymentPolicy(
-            {
-              amountZec: purchase.amountZec,
-              payTo: purchase.payTo,
-              memo: purchase.memo,
-              expiresAt: purchase.expiresAt,
-              recipientLabel: purchase.vendorName
-            },
-            config,
-            state
-          )
+      purchase.kind === "direct_transfer" && purchase.directTransfer
+        ? evaluateDirectTransferPolicy(purchase.directTransfer, config, state)
         : evaluateQuotePolicy(purchaseToQuote(purchase), config, state);
-    if (!purchase.payment && !["rejected", "expired", "payment_failed", "verification_failed"].includes(purchase.status)) {
-      purchase.status = purchase.policy.severity === "blocked" ? "policy_blocked" : "awaiting_approval";
-    }
+    purchase.status = purchase.policy.severity === "blocked" ? "policy_blocked" : "awaiting_approval";
     purchase.updatedAt = new Date().toISOString();
     updated = purchase;
     appendActivity(state, {
@@ -220,41 +220,7 @@ export async function reviewPurchase(args: { purchaseId: string }) {
     });
   });
 
-  if (!updated) {
-    throw new Error("Purchase not found.");
-  }
-
-  return {
-    purchaseId: updated.id,
-    source: updated.source ?? "harness",
-    status: updated.status,
-    amountZec: updated.amountZec,
-    amountZats: updated.amountZats,
-    recipient: {
-      name: updated.vendorName,
-      payTo: updated.payTo
-    },
-    memo: updated.memo,
-    expiresAt: updated.expiresAt,
-    requiredPii: updated.requiredPii,
-    privacy: updated.privacy,
-    policy: updated.policy,
-    approvalWording: `Approve sending ${updated.amountZec} ZEC to ${updated.payTo}? This is a real, non-idempotent payment.`
-  };
-}
-
-export async function approveAndPayPurchaseTool(args: {
-  purchaseId: string;
-  overrideReason?: string;
-  profileId?: string;
-}) {
-  const config = loadConfig();
-  return approveAndPayPurchase(config, {
-    purchaseId: args.purchaseId,
-    overrideReason: args.overrideReason,
-    profileId: args.profileId,
-    approvedBy: "mcp"
-  });
+  return updated;
 }
 
 export async function claimFulfillment(args: { purchaseId: string }) {
@@ -262,8 +228,8 @@ export async function claimFulfillment(args: { purchaseId: string }) {
   if (!purchase) {
     throw new Error("Purchase not found.");
   }
-  if (purchase.source === "generic") {
-    throw new Error("Generic ZEC payments do not support automatic fulfillment claims.");
+  if (purchase.kind === "direct_transfer") {
+    throw new Error("Direct transfers do not use vendor fulfillment.");
   }
 
   const response = await fetch(`${purchase.vendorUrl.replace(/\/$/, "")}/orders/${purchase.orderId}`);
@@ -297,10 +263,16 @@ export async function claimFulfillment(args: { purchaseId: string }) {
   return purchase;
 }
 
-export async function getZecGuardState() {
+export async function getAgentZcashState() {
+  const config = loadConfig();
+  const state = loadState();
+  if (await refreshPendingDirectTransferConfirmations(state, config)) {
+    saveState(state);
+  }
+
   return {
-    config: loadConfig(),
-    state: loadState()
+    config,
+    state
   };
 }
 
@@ -314,65 +286,17 @@ export async function callTool(name: string, args: Record<string, unknown>) {
         itemId: String(args.itemId ?? ""),
         options: typeof args.options === "object" && args.options !== null ? (args.options as Record<string, unknown>) : undefined
       });
-    case "prepare_zec_payment":
-      return prepareZecPayment({
-        paymentUri: typeof args.paymentUri === "string" ? args.paymentUri : undefined,
-        address: typeof args.address === "string" ? args.address : undefined,
-        amountZec: typeof args.amountZec === "string" ? args.amountZec : undefined,
-        memo: typeof args.memo === "string" ? args.memo : undefined,
-        recipientLabel: typeof args.recipientLabel === "string" ? args.recipientLabel : undefined,
-        expiresAt: typeof args.expiresAt === "string" ? args.expiresAt : undefined
-      });
     case "prepare_purchase":
-    case "review_purchase":
-      return reviewPurchase({ purchaseId: String(args.purchaseId ?? "") });
-    case "approve_and_pay_purchase":
-      return approveAndPayPurchaseTool({
-        purchaseId: String(args.purchaseId ?? ""),
-        overrideReason: typeof args.overrideReason === "string" ? args.overrideReason : undefined,
-        profileId: typeof args.profileId === "string" ? args.profileId : undefined
-      });
+      return preparePurchase({ purchaseId: String(args.purchaseId ?? "") });
+    case "prepare_direct_transfer":
+      return prepareDirectTransfer(args);
     case "claim_fulfillment":
       return claimFulfillment({ purchaseId: String(args.purchaseId ?? "") });
-    case "get_zecguard_state":
-      return getZecGuardState();
+    case "get_agentzcash_state":
+      return getAgentZcashState();
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
-}
-
-function parsePaymentInput(args: {
-  paymentUri?: string;
-  address?: string;
-  amountZec?: string;
-  memo?: string;
-}): { address: string; amountZec: string; memo: string } {
-  if (args.paymentUri) {
-    const match = args.paymentUri.match(/^zcash:([^?]+)(?:\?(.*))?$/i);
-    if (!match) {
-      throw new Error("paymentUri must be a ZIP-321 zcash: URI.");
-    }
-    const params = new URLSearchParams(match[2] ?? "");
-    const address = decodeURIComponent(match[1] ?? "");
-    const amountZec = params.get("amount") ?? args.amountZec;
-    const memo = params.get("memo") ?? params.get("message") ?? args.memo ?? "";
-    if (!amountZec) {
-      throw new Error("Payment amount is required.");
-    }
-    return { address, amountZec, memo };
-  }
-
-  if (!args.address) {
-    throw new Error("address is required when paymentUri is not supplied.");
-  }
-  if (!args.amountZec) {
-    throw new Error("amountZec is required when paymentUri is not supplied.");
-  }
-  return {
-    address: args.address,
-    amountZec: args.amountZec,
-    memo: args.memo ?? ""
-  };
 }
 
 function purchaseToQuote(purchase: Purchase): QuoteResponse {
