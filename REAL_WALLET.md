@@ -5,17 +5,18 @@ AgentZcash uses one managed Zingo CLI wallet by default. Approval cannot submit 
 ## Initialize
 
 ```bash
-npx agentzcash install-wallet
 npx agentzcash init
 ```
 
 AgentZcash stores wallet data under `~/.agentzcash/wallet` by passing Zingo CLI a dedicated `--data-dir`; it does not use the user's default Zingo wallet directory. The seed phrase is displayed for backup during initialization and is not stored as plaintext by AgentZcash.
 
-If Zingo CLI is not already available on `PATH` or `AGENTZCASH_ZINGO_CLI`, AgentZcash installs it under `~/.agentzcash/zingo-cli` with a single Cargo build job to reduce peak memory use. To rebuild or replace that managed binary, run:
+If Zingo CLI is not already available on `PATH` or `AGENTZCASH_ZINGO_CLI`, AgentZcash downloads a prebuilt managed binary under `~/.agentzcash/zingo-cli`. To replace that managed binary, run:
 
 ```bash
 npx agentzcash install-wallet --force
 ```
+
+Developers can build the wallet dependency from source with `npx agentzcash install-wallet --build-from-source`, which requires Rust/Cargo and uses one Cargo build job to reduce peak memory use.
 
 To check whether the local Zingo CLI dependency, managed wallet directory, config, and spendable balance are ready, run:
 

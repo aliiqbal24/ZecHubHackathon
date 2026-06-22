@@ -1,0 +1,122 @@
+name: Wallet Binaries
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to upload assets to. Leave blank to build artifacts only."
+        required: false
+        default: ""
+      zingolib_ref:
+        description: "zingolib git ref or 'latest'."
+        required: true
+        default: "latest"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset_suffix }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset_suffix: linux-x64
+            executable: zingo-cli
+            asset_extension: ""
+          - os: ubuntu-24.04-arm
+            asset_suffix: linux-arm64
+            executable: zingo-cli
+            asset_extension: ""
+          - os: windows-latest
+            asset_suffix: windows-x64
+            executable: zingo-cli.exe
+            asset_extension: ".exe"
+          - os: windows-11-arm
+            asset_suffix: windows-arm64
+            executable: zingo-cli.exe
+            asset_extension: ".exe"
+          - os: macos-15-intel
+            asset_suffix: darwin-x64
+            executable: zingo-cli
+            asset_extension: ""
+          - os: macos-15
+            asset_suffix: darwin-arm64
+            executable: zingo-cli
+            asset_extension: ""
+
+    steps:
+      - name: Checkout zingolib
+        uses: actions/checkout@v4
+        with:
+          repository: zingolabs/zingolib
+          path: zingolib
+
+      - name: Select zingolib ref
+        shell: bash
+        working-directory: zingolib
+        env:
+          ZINGOLIB_REF: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.zingolib_ref || 'latest' }}
+        run: |
+          set -euo pipefail
+          REF="$ZINGOLIB_REF"
+          if [ "$REF" = "latest" ]; then
+            REF="$(curl -fsSL https://api.github.com/repos/zingolabs/zingolib/releases/latest | node -e "let data=''; process.stdin.on('data', c => data += c); process.stdin.on('end', () => console.log(JSON.parse(data).tag_name));")"
+          fi
+          git fetch --tags --force
+          git checkout "$REF"
+          echo "Using zingolib ref $REF"
+
+      - name: Use Rust stable
+        shell: bash
+        run: rustup default stable
+
+      - name: Build zingo-cli
+        shell: bash
+        working-directory: zingolib
+        run: cargo build --release --package zingo-cli --jobs 1
+        env:
+          CARGO_BUILD_JOBS: "1"
+
+      - name: Package binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          ASSET="agentzcash-zingo-cli-${{ matrix.asset_suffix }}${{ matrix.asset_extension }}"
+          cp "zingolib/target/release/${{ matrix.executable }}" "artifacts/$ASSET"
+          node -e "const fs=require('fs'); const crypto=require('crypto'); const f='artifacts/$ASSET'; const h=crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'); fs.writeFileSync(`${f}.sha256`, `${h}  $ASSET\n`);"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wallet-binary-${{ matrix.asset_suffix }}
+          path: artifacts/*
+
+  publish:
+    name: Upload Release Assets
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
+    steps:
+      - name: Download workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Upload assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          TAG="$RELEASE_TAG"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "AgentZcash wallet binary assets"
+          gh release upload "$TAG" release-assets/* --clobber

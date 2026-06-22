@@ -37,6 +37,7 @@ interface Flags {
   loop: boolean;
   runtime: boolean;
   force: boolean;
+  buildFromSource: boolean;
 }
 
 interface DoctorCheck {
@@ -87,7 +88,8 @@ function parseFlags(args: string[]): Flags {
     write: args.includes("--write"),
     loop: args.includes("--loop"),
     runtime: args.includes("--runtime"),
-    force: args.includes("--force")
+    force: args.includes("--force"),
+    buildFromSource: args.includes("--build-from-source")
   };
 }
 
@@ -102,13 +104,13 @@ async function init(flags: Flags) {
   console.log(`Managed wallet: ${walletDir}`);
 
   if (flags.dryRun) {
-    console.log("Dry run: would check Zingo CLI, create one managed wallet if needed, write config/state, and start services.");
+    console.log("Dry run: would install/check Zingo CLI, create one managed wallet if needed, write config/state, and start services.");
     console.log(`Config: ${configPath}`);
     console.log(`State: ${statePath}`);
     return;
   }
 
-  await ensureZingoAvailable();
+  await ensureWalletDependency(flags);
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(walletDir, { recursive: true });
 
@@ -246,7 +248,7 @@ async function collectDoctorChecks(flags: Flags): Promise<DoctorCheck[]> {
       label: "Zingo CLI",
       ok: false,
       detail: oneLineError(error),
-      fix: "Install zingo-cli or set AGENTZCASH_ZINGO_CLI to its absolute path."
+      fix: "Run: npx agentzcash install-wallet"
     });
   }
 
@@ -904,7 +906,11 @@ async function installWallet(flags: Flags) {
   }
   console.log("");
   try {
-    const installed = await installManagedZingoCli({ force: flags.force, jobs: 1 });
+    const installed = await installManagedZingoCli({
+      force: flags.force,
+      jobs: 1,
+      buildFromSource: flags.buildFromSource
+    });
     console.log("");
     console.log(`Installed zingo-cli: ${installed}`);
     console.log("AgentZcash will use this managed binary automatically.");
@@ -914,6 +920,25 @@ async function installWallet(flags: Flags) {
     printZingoInstallGuidance();
     throw error;
   }
+}
+
+async function ensureWalletDependency(flags: Flags): Promise<void> {
+  try {
+    await ensureZingoAvailable();
+    return;
+  } catch (error) {
+    if (process.env.AGENTZCASH_ZINGO_CLI) {
+      throw error;
+    }
+  }
+
+  console.log("Zingo CLI was not found; installing the managed wallet dependency...");
+  const installed = await installManagedZingoCli({
+    jobs: 1,
+    buildFromSource: flags.buildFromSource
+  });
+  console.log(`Installed zingo-cli: ${installed}`);
+  await ensureZingoAvailable();
 }
 
 async function walletDoctor() {
@@ -1244,10 +1269,10 @@ function printHelp() {
   console.log(`AgentZcash
 
 Usage:
-  agentzcash init [--dry-run] [--no-start]
+  agentzcash init [--dry-run] [--no-start] [--build-from-source]
   agentzcash start [--dev]
   agentzcash doctor [--loop|--runtime]
-  agentzcash install-wallet [--force]
+  agentzcash install-wallet [--force] [--build-from-source]
   agentzcash wallet doctor
   agentzcash wallet receive
   agentzcash wallet balance

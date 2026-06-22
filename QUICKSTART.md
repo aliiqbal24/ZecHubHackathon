@@ -9,18 +9,12 @@ AgentZcash does not let an agent approve or submit payment by itself. The agent 
 - Node.js 20 or newer
 - npm
 - Git
-- Rust/Cargo, if AgentZcash needs to build Zingo CLI from source
 - Codex or Claude Code
 - A shielded-capable Zcash recipient address that starts with `u1`, `utest`, `zs`, or `ztestsapling`
 
 Transparent-only `t1` and `t3` recipient addresses are blocked for direct agent transfers.
 
-Install the wallet dependency before initializing. AgentZcash installs `zingo-cli` into `~/.agentzcash/zingo-cli` when it is not already available:
-
-```bash
-npx agentzcash install-wallet
-npx agentzcash wallet doctor
-```
+AgentZcash downloads a prebuilt managed Zingo CLI wallet dependency during `init` when one is not already available.
 
 ## 1. Download And Build
 
@@ -58,14 +52,13 @@ During setup, AgentZcash:
 - prints the wallet receive address
 - starts the dashboard and local MCP HTTP server when possible
 
-If Zingo CLI is not found during init, run the managed installer and then run init again:
+If you only want to install or replace the wallet dependency without creating a wallet, run:
 
 ```bash
 npx agentzcash install-wallet
-npx agentzcash init
 ```
 
-Use `npx agentzcash install-wallet --force` to rebuild or replace the managed binary.
+Use `npx agentzcash install-wallet --force` to replace the managed binary. Developers can build from source with `npx agentzcash install-wallet --build-from-source`, which requires Rust/Cargo.
 
 Before funding, you can check the managed wallet state:
 
@@ -223,7 +216,7 @@ For direct transfers, `get_agentzcash_state` refreshes pending confirmation stat
 
 `Zingo CLI binary not found`
 
-Set `AGENTZCASH_ZINGO_CLI` to the absolute Zingo CLI binary path or install `zingo-cli` on `PATH`.
+Run `npx agentzcash init` or `npx agentzcash install-wallet`. AgentZcash downloads a prebuilt managed wallet binary by default. Developers can use `npx agentzcash install-wallet --build-from-source` when they explicitly want a local source build.
 
 `Spendable balance: 0 ZEC`
 
