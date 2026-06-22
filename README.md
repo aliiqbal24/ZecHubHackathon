@@ -80,7 +80,7 @@ This repo includes project-scoped MCP config for both Claude Code (`.mcp.json`) 
 Manual MCP stdio command:
 
 ```bash
-npm --silent run mcp:stdio
+npx agentzcash mcp stdio
 ```
 
 Manual installers:

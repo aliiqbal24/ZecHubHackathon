@@ -666,7 +666,7 @@ async function mcp(subcommand: string | undefined, rest: string[]) {
     return;
   }
   if (subcommand !== "install") {
-    console.log("Usage: agentzcash mcp install codex|claude [--write]");
+    console.log("Usage: agentzcash mcp stdio | install codex|claude [--write]");
     return;
   }
   const target = rest.find((arg) => arg === "codex" || arg === "claude");
@@ -678,7 +678,7 @@ async function mcp(subcommand: string | undefined, rest: string[]) {
 
   if (target === "codex") {
     console.log("Codex MCP setup:");
-    console.log("codex mcp add agentzcash -- npm --silent run mcp:stdio");
+    console.log("codex mcp add agentzcash -- npx agentzcash mcp stdio");
     if (flags.write) {
       const configPath = writeCodexProjectConfig();
       console.log(`Wrote ${configPath}`);
@@ -687,7 +687,7 @@ async function mcp(subcommand: string | undefined, rest: string[]) {
   }
 
   console.log("Claude Code MCP setup:");
-  console.log("claude mcp add --scope project --transport stdio agentzcash -- npm --silent run mcp:stdio");
+  console.log("claude mcp add --scope project --transport stdio agentzcash -- npx agentzcash mcp stdio");
   const preview = claudeProjectMcpConfig();
   console.log("Project .mcp.json preview:");
   console.log(JSON.stringify(preview, null, 2));
@@ -853,8 +853,8 @@ function claudeProjectMcpConfig() {
     mcpServers: {
       agentzcash: {
         type: "stdio",
-        command: "npm",
-        args: ["--silent", "run", "mcp:stdio"],
+        command: "npx",
+        args: ["agentzcash", "mcp", "stdio"],
         timeout: 120_000
       }
     }
@@ -886,8 +886,8 @@ function writeCodexProjectConfig(): string {
 
   const block = [
     "[mcp_servers.agentzcash]",
-    'command = "npm"',
-    'args = ["--silent", "run", "mcp:stdio"]',
+    'command = "npx"',
+    'args = ["agentzcash", "mcp", "stdio"]',
     "startup_timeout_sec = 20",
     "tool_timeout_sec = 120"
   ].join("\n");
@@ -956,6 +956,7 @@ Usage:
   agentzcash wallet receive
   agentzcash wallet balance
   agentzcash wallet backup
+  agentzcash mcp stdio
   agentzcash mcp install codex|claude [--write]
 `);
 }

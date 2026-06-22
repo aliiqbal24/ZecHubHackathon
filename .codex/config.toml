@@ -1,5 +1,5 @@
 [mcp_servers.agentzcash]
-command = "npm"
-args = ["--silent", "run", "mcp:stdio"]
+command = "npx"
+args = ["agentzcash", "mcp", "stdio"]
 startup_timeout_sec = 20
 tool_timeout_sec = 120

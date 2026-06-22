@@ -144,6 +144,12 @@ Included configs:
 - Codex: `.codex/config.toml`
 - Claude Code: `.mcp.json`
 
+Both configs start MCP through:
+
+```bash
+npx agentzcash mcp stdio
+```
+
 Approve or trust the `agentzcash` MCP server when the agent client asks.
 
 The MCP server exposes these relevant tools:
