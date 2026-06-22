@@ -14,9 +14,9 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@agentzcash/core": "*",
-    "@agentzcash/dashboard": "*",
-    "@agentzcash/mcp-server": "*"
+    "@agentzcash/core": "0.1.0",
+    "@agentzcash/dashboard": "0.1.0",
+    "@agentzcash/mcp-server": "0.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.2"

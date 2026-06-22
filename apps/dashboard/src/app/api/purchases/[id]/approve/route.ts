@@ -1,10 +1,13 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import {
   appendActivity,
   applyDirectTransferConfirmation,
   canApprovePurchase,
   createWalletAdapter,
+  getStatePath,
   loadConfig,
   loadState,
   saveState,
@@ -17,6 +20,14 @@ import {
 } from "@agentzcash/core";
 
 export const dynamic = "force-dynamic";
+
+const APPROVAL_LOCK_STALE_MS = 10 * 60 * 1000;
+
+interface ApprovalRequestBody {
+  profileId?: string;
+  overrideReason?: string;
+  approvalToken?: string;
+}
 
 function selectReleasedPii(purchase: Purchase, profile?: ShippingProfile): Record<string, unknown> | undefined {
   if (purchase.requiredPii.length === 0) return undefined;
@@ -34,11 +45,20 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as {
-    profileId?: string;
-    overrideReason?: string;
-    approvalToken?: string;
-  };
+  const body = (await request.json().catch(() => ({}))) as ApprovalRequestBody;
+  const lock = acquireApprovalLock(id);
+  if (!lock.acquired) {
+    return NextResponse.json({ error: "Payment approval is already being processed." }, { status: 409 });
+  }
+
+  try {
+    return await approveWithLock(request, id, body);
+  } finally {
+    releaseApprovalLock(lock.file);
+  }
+}
+
+async function approveWithLock(request: NextRequest, id: string, body: ApprovalRequestBody) {
   const config = loadConfig();
   const state = loadState();
   const purchase = state.purchases.find((item) => item.id === id);
@@ -283,6 +303,57 @@ export async function POST(
   saveState(updatedState);
 
   return NextResponse.json({ ok: true, purchase: updatedPurchase });
+}
+
+function acquireApprovalLock(purchaseId: string): { acquired: true; file: string } | { acquired: false; file: string } {
+  const dir = path.join(path.dirname(getStatePath()), "locks");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `approval-${safeLockName(purchaseId)}.lock`);
+
+  try {
+    return openApprovalLock(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
+    }
+  }
+
+  if (isStaleApprovalLock(file)) {
+    fs.rmSync(file, { force: true });
+    try {
+      return openApprovalLock(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
+
+  return { acquired: false, file };
+}
+
+function openApprovalLock(file: string): { acquired: true; file: string } {
+  const fd = fs.openSync(file, "wx");
+  fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+  fs.closeSync(fd);
+  return { acquired: true, file };
+}
+
+function releaseApprovalLock(file: string): void {
+  fs.rmSync(file, { force: true });
+}
+
+function isStaleApprovalLock(file: string): boolean {
+  try {
+    const stat = fs.statSync(file);
+    return Date.now() - stat.mtimeMs > APPROVAL_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function safeLockName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "unknown";
 }
 
 function validateLocalApprovalRequest(request: NextRequest): { ok: true } | { ok: false; error: string } {

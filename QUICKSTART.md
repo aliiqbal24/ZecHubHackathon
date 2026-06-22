@@ -66,7 +66,6 @@ Before funding, you can check the managed wallet state:
 npx agentzcash wallet doctor
 ```
 
-
 ## 3. Fund The Agent Wallet
 
 Print the managed wallet receive address:
@@ -136,6 +135,15 @@ Included configs:
 
 - Codex: `.codex/config.toml`
 - Claude Code: `.mcp.json`
+
+For an installed package in a different project folder, write both MCP config and the agent payment-safety instructions first:
+
+```bash
+npx agentzcash mcp install codex --write
+npx agentzcash mcp install claude --write
+```
+
+Codex reads the installed AgentZcash rules from `AGENTS.md`; Claude Code reads them from `CLAUDE.md`.
 
 Both configs start MCP through:
 

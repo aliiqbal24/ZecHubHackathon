@@ -40,6 +40,20 @@ Project-scoped configs are included:
 
 Start the agent client from the repo root and approve/trust the project MCP server when prompted.
 
+Install or refresh MCP config and agent safety instructions from any project folder:
+
+```bash
+npx agentzcash mcp install codex --write
+npx agentzcash mcp install claude --write
+```
+
+The Codex installer writes `AGENTS.md`; the Claude Code installer writes `CLAUDE.md`. To refresh only those instruction files:
+
+```bash
+npx agentzcash instructions codex --write
+npx agentzcash instructions claude --write
+```
+
 Manual stdio command:
 
 ```bash

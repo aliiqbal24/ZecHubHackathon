@@ -4,24 +4,24 @@
   "private": false,
   "type": "module",
   "files": [
-    ".next/standalone",
+    ".next/standalone/apps/dashboard",
     ".next/static",
     "public",
     "scripts",
     "package.json"
   ],
   "scripts": {
-    "dev": "next dev --port 3000",
+    "dev": "next dev --hostname 127.0.0.1 --port 3000",
     "build": "next build",
     "postbuild": "node scripts/prepare-standalone.mjs",
-    "start": "node .next/standalone/apps/dashboard/server.js"
+    "start": "node -e \"process.env.HOSTNAME=process.env.HOSTNAME||'127.0.0.1'; import('./.next/standalone/apps/dashboard/server.js')\""
   },
   "dependencies": {
-    "@agentzcash/core": "*",
+    "@agentzcash/core": "0.1.0",
     "lucide-react": "^0.562.0",
-    "next": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "next": "16.2.9",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
   },
   "devDependencies": {
     "@types/node": "^24.10.2",

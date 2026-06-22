@@ -12,6 +12,7 @@ const originalConfig = process.env.AGENTZCASH_CONFIG;
 const originalStatePath = process.env.AGENTZCASH_STATE_PATH;
 const originalFakeConfirmationFile = process.env.AGENTZCASH_FAKE_CONFIRMATION_FILE;
 const originalFakeSendCountFile = process.env.AGENTZCASH_FAKE_SEND_COUNT_FILE;
+const originalFakeSendDelayMs = process.env.AGENTZCASH_FAKE_SEND_DELAY_MS;
 
 let tempDir: string | undefined;
 
@@ -21,6 +22,7 @@ afterEach(() => {
   restoreEnv("AGENTZCASH_STATE_PATH", originalStatePath);
   restoreEnv("AGENTZCASH_FAKE_CONFIRMATION_FILE", originalFakeConfirmationFile);
   restoreEnv("AGENTZCASH_FAKE_SEND_COUNT_FILE", originalFakeSendCountFile);
+  restoreEnv("AGENTZCASH_FAKE_SEND_DELAY_MS", originalFakeSendDelayMs);
 
   if (tempDir) {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -164,6 +166,34 @@ describe("agentic shielded transfer loop", () => {
     expect(fs.readFileSync(sendCountFile, "utf8")).toBe("1");
   });
 
+  it("locks concurrent approvals so only one wallet send runs", async () => {
+    const { sendCountFile } = setupTempAgentHome({ txStatus: "1", sendDelayMs: 100 });
+    const prepared = await prepareDirectTransfer({
+      recipientName: "Alice",
+      amountZec: "0.01",
+      address: "u1recipient0000000000000000000000000000000000000000",
+      memo: "concurrent approval test transfer",
+      purpose: "Concurrent approval safety test",
+      evidenceUrls: ["https://example.com/invoice"],
+      agentVerificationNotes: "Address and amount copied from the invoice."
+    });
+
+    const makeRequest = () =>
+      new NextRequest(`http://localhost/api/purchases/${prepared.purchaseId}/approve`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: "http://localhost" },
+        body: JSON.stringify(approvalBody(prepared.approvalUrl))
+      });
+
+    const [first, second] = await Promise.all([
+      approvePurchase(makeRequest(), { params: Promise.resolve({ id: prepared.purchaseId }) }),
+      approvePurchase(makeRequest(), { params: Promise.resolve({ id: prepared.purchaseId }) })
+    ]);
+
+    expect([first.status, second.status].sort()).toEqual([200, 409]);
+    expect(fs.readFileSync(sendCountFile, "utf8")).toBe("1");
+  });
+
   it("does not approve policy-blocked direct transfers even with a valid approval token", async () => {
     const { sendCountFile } = setupTempAgentHome({ txStatus: "1" });
     const prepared = await prepareDirectTransfer({
@@ -195,7 +225,7 @@ describe("agentic shielded transfer loop", () => {
   });
 });
 
-function setupTempAgentHome({ txStatus }: { txStatus: "1" | "not_found" }): {
+function setupTempAgentHome({ txStatus, sendDelayMs = 0 }: { txStatus: "1" | "not_found"; sendDelayMs?: number }): {
   home: string;
   confirmationFile: string;
   sendCountFile: string;
@@ -215,6 +245,8 @@ function setupTempAgentHome({ txStatus }: { txStatus: "1" | "not_found" }): {
       "  console.log('1.00000000');",
       "} else if (mode === 'send') {",
       "  const countFile = process.env.AGENTZCASH_FAKE_SEND_COUNT_FILE;",
+      "  const delayMs = Number(process.env.AGENTZCASH_FAKE_SEND_DELAY_MS ?? 0);",
+      "  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));",
       "  const count = Number(fs.readFileSync(countFile, 'utf8').trim());",
       "  fs.writeFileSync(countFile, String(count + 1));",
       "  console.log('submitted txid_direct_1234567890abcdef');",
@@ -277,6 +309,7 @@ function setupTempAgentHome({ txStatus }: { txStatus: "1" | "not_found" }): {
   process.env.AGENTZCASH_STATE_PATH = path.join(tempDir, "state.json");
   process.env.AGENTZCASH_FAKE_CONFIRMATION_FILE = confirmationFile;
   process.env.AGENTZCASH_FAKE_SEND_COUNT_FILE = sendCountFile;
+  process.env.AGENTZCASH_FAKE_SEND_DELAY_MS = String(sendDelayMs);
   return { home: tempDir, confirmationFile, sendCountFile };
 }
 

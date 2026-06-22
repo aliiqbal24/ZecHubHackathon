@@ -47,6 +47,11 @@ interface DoctorCheck {
   fix?: string;
 }
 
+type AgentClientTarget = "codex" | "claude";
+
+const AGENTZCASH_INSTRUCTIONS_HEADING = "AgentZcash Payment Safety";
+const LOCAL_BIND_HOST = "127.0.0.1";
+
 async function main() {
   const [command = "help", subcommand, ...rest] = process.argv.slice(2);
 
@@ -69,6 +74,9 @@ async function main() {
         break;
       case "mcp":
         await mcp(subcommand, rest);
+        break;
+      case "instructions":
+        await instructions(subcommand, rest);
         break;
       default:
         printHelp();
@@ -159,9 +167,9 @@ async function start(flags: Flags) {
       throw new Error("Development start is only available from the AgentZcash workspace.");
     }
     console.log("Starting AgentZcash development services...");
-    spawnManaged("npm", ["run", "dev"], repoRoot, "AgentZcash dev");
-    console.log("Dashboard: http://localhost:3000");
-    console.log("MCP HTTP: http://localhost:3010");
+    spawnManaged("npm", ["run", "dev"], repoRoot, "AgentZcash dev", localServerEnv());
+    console.log(`Dashboard: http://${LOCAL_BIND_HOST}:3000`);
+    console.log(`MCP HTTP: http://${LOCAL_BIND_HOST}:3010`);
     return;
   }
 
@@ -175,8 +183,8 @@ async function start(flags: Flags) {
   console.log(`Starting AgentZcash ${runtime.mode} services...`);
   spawnManaged(runtime.dashboard.command, runtime.dashboard.args, runtime.dashboard.cwd, "Dashboard", runtime.dashboard.env);
   spawnManaged(runtime.mcp.command, runtime.mcp.args, runtime.mcp.cwd, "MCP HTTP", runtime.mcp.env);
-  console.log("Dashboard: http://localhost:3000");
-  console.log("MCP HTTP: http://localhost:3010");
+  console.log(`Dashboard: http://${LOCAL_BIND_HOST}:3000`);
+  console.log(`MCP HTTP: http://${LOCAL_BIND_HOST}:3010`);
 }
 
 async function doctor(flags: Flags) {
@@ -316,12 +324,14 @@ async function collectDoctorChecks(flags: Flags): Promise<DoctorCheck[]> {
       detail: path.join(repoRoot, ".codex", "config.toml"),
       fix: "Run: npx agentzcash mcp install codex --write"
     });
+    checks.push(checkAgentInstructions(repoRoot, "codex"));
     checks.push({
       label: "Claude MCP config",
       ok: fs.existsSync(path.join(repoRoot, ".mcp.json")),
       detail: path.join(repoRoot, ".mcp.json"),
       fix: "Run: npx agentzcash mcp install claude --write"
     });
+    checks.push(checkAgentInstructions(repoRoot, "claude"));
     checks.push(checkPackageScript(repoRoot, "mcp:stdio", "npm --silent run stdio -w @agentzcash/mcp-server"));
     checks.push(checkPackageScript(repoRoot, "test:loop", "vitest run apps/dashboard/src/agent-loop.test.ts"));
     checks.push({
@@ -400,12 +410,13 @@ async function resolveRuntimeStart(repoRoot: string | undefined): Promise<Runtim
         command: process.execPath,
         args: [dashboardServer],
         cwd: path.dirname(dashboardServer),
-        env: { ...process.env, PORT: process.env.PORT ?? "3000" }
+        env: localServerEnv({ PORT: process.env.PORT ?? "3000" })
       },
       mcp: {
         command: process.execPath,
         args: [mcpServer],
-        cwd: repoRoot
+        cwd: repoRoot,
+        env: localServerEnv()
       }
     };
   }
@@ -443,13 +454,23 @@ async function resolvePackagedRuntimeStart(): Promise<RuntimeStart | undefined> 
       command: process.execPath,
       args: [standaloneServer],
       cwd: path.dirname(standaloneServer),
-      env: { ...process.env, PORT: process.env.PORT ?? "3000" }
+      env: localServerEnv({ PORT: process.env.PORT ?? "3000" })
     },
     mcp: {
       command: process.execPath,
       args: [mcpServer],
-      cwd: path.dirname(mcpServer)
+      cwd: path.dirname(mcpServer),
+      env: localServerEnv()
     }
+  };
+}
+
+function localServerEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    HOSTNAME: process.env.HOSTNAME ?? LOCAL_BIND_HOST,
+    MCP_SERVER_HOST: process.env.MCP_SERVER_HOST ?? LOCAL_BIND_HOST,
+    ...overrides
   };
 }
 
@@ -548,14 +569,11 @@ async function collectRuntimeDoctorChecks(): Promise<DoctorCheck[]> {
     });
     checks.push({
       label: "Dashboard start script",
-      ok: packageScriptEquals(
-        path.join(repoRoot, "apps", "dashboard", "package.json"),
-        "start",
-        "node .next/standalone/apps/dashboard/server.js"
-      ),
+      ok: dashboardStartScriptIsPortable(path.join(repoRoot, "apps", "dashboard", "package.json")),
       detail: "apps/dashboard package start script",
-      fix: "Restore @agentzcash/dashboard start script to: node .next/standalone/apps/dashboard/server.js"
+      fix: "Restore @agentzcash/dashboard start script so it binds HOSTNAME to 127.0.0.1 and starts .next/standalone/apps/dashboard/server.js."
     });
+    checks.push(checkDashboardPackageFiles(repoRoot));
   } else {
     checks.push(await resolveRuntimeModuleCheck("Core runtime module", "@agentzcash/core"));
     checks.push(await resolveRuntimeModuleCheck("MCP stdio runtime module", "@agentzcash/mcp-server/dist/stdio.js"));
@@ -569,6 +587,7 @@ async function collectRuntimeDoctorChecks(): Promise<DoctorCheck[]> {
       detail: standaloneServer ?? "Could not resolve @agentzcash/dashboard/package.json.",
       fix: "Install a package that includes @agentzcash/dashboard .next/standalone output."
     });
+    checks.push(checkInstalledDashboardPlatformNeutrality(dashboardRoot));
   }
 
   checks.push(await checkCliMcpPreview());
@@ -613,6 +632,80 @@ function packageScriptEquals(packagePath: string, scriptName: string, expected: 
   } catch {
     return false;
   }
+}
+
+function dashboardStartScriptIsPortable(packagePath: string): boolean {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packagePath, "utf8")) as { scripts?: Record<string, string> };
+    const script = parsed.scripts?.start ?? "";
+    return script.includes("127.0.0.1") && script.includes(".next/standalone/apps/dashboard/server.js");
+  } catch {
+    return false;
+  }
+}
+
+function checkDashboardPackageFiles(repoRoot: string): DoctorCheck {
+  const packagePath = path.join(repoRoot, "apps", "dashboard", "package.json");
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packagePath, "utf8")) as { files?: string[] };
+    const files = (parsed.files ?? []).map((entry) => entry.replaceAll("\\", "/"));
+    const includesStandaloneApp = files.includes(".next/standalone/apps/dashboard");
+    const includesWholeStandalone = files.includes(".next/standalone");
+    const includesStandaloneNodeModules = files.some((entry) => entry.startsWith(".next/standalone/node_modules"));
+
+    return {
+      label: "Dashboard package platform neutrality",
+      ok: includesStandaloneApp && !includesWholeStandalone && !includesStandaloneNodeModules,
+      detail: files.join(", ") || "no package files configured",
+      fix: "Package .next/standalone/apps/dashboard, not the whole .next/standalone tree; npm should install platform-native dependencies."
+    };
+  } catch (error) {
+    return {
+      label: "Dashboard package platform neutrality",
+      ok: false,
+      detail: oneLineError(error),
+      fix: "Restore apps/dashboard/package.json with a platform-neutral files list."
+    };
+  }
+}
+
+function checkInstalledDashboardPlatformNeutrality(dashboardRoot: string | undefined): DoctorCheck {
+  if (!dashboardRoot) {
+    return {
+      label: "Dashboard package platform neutrality",
+      ok: false,
+      detail: "Could not resolve @agentzcash/dashboard/package.json.",
+      fix: "Install the @agentzcash/dashboard package."
+    };
+  }
+
+  const tracedNodeModules = path.join(dashboardRoot, ".next", "standalone", "node_modules");
+  const nativeArtifact = findFirstFileByExtension(path.join(dashboardRoot, ".next", "standalone"), ".node");
+  const problems = [
+    fs.existsSync(tracedNodeModules) ? "contains traced .next/standalone/node_modules" : undefined,
+    nativeArtifact ? `contains native binary ${nativeArtifact}` : undefined
+  ].filter((problem): problem is string => Boolean(problem));
+
+  return {
+    label: "Dashboard package platform neutrality",
+    ok: problems.length === 0,
+    detail: problems.length ? problems.join("; ") : "uses npm-installed platform dependencies outside the packaged standalone app",
+    fix: "Publish the dashboard package without .next/standalone/node_modules or native .node binaries."
+  };
+}
+
+function findFirstFileByExtension(root: string, extension: string): string | undefined {
+  if (!fs.existsSync(root)) return undefined;
+  const entries = fs.readdirSync(root, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(root, entry.name);
+    if (entry.isFile() && entry.name.endsWith(extension)) return fullPath;
+    if (entry.isDirectory()) {
+      const found = findFirstFileByExtension(fullPath, extension);
+      if (found) return found;
+    }
+  }
+  return undefined;
 }
 
 function findCliPackageJson(cliEntry: string, repoRoot: string | undefined): string | undefined {
@@ -670,11 +763,12 @@ async function checkCliMcpPreview(): Promise<DoctorCheck> {
       timeout: 15_000
     });
     const expected = "codex mcp add agentzcash -- npx agentzcash mcp stdio";
+    const expectedInstructions = "prepare_direct_transfer";
     return {
       label: "CLI MCP install preview",
-      ok: stdout.includes(expected),
+      ok: stdout.includes(expected) && stdout.includes(expectedInstructions) && stdout.includes("AGENTS.md"),
       detail: stdout.trim().replace(/\s+/g, " "),
-      fix: `Expected preview to include: ${expected}`
+      fix: `Expected preview to include MCP command and installed agent instructions.`
     };
   } catch (error) {
     return {
@@ -1069,9 +1163,12 @@ async function mcp(subcommand: string | undefined, rest: string[]) {
   if (target === "codex") {
     console.log("Codex MCP setup:");
     console.log("codex mcp add agentzcash -- npx agentzcash mcp stdio");
+    printInstructionPreview("codex");
     if (flags.write) {
       const configPath = writeCodexProjectConfig();
       console.log(`Wrote ${configPath}`);
+      const instructionsPath = writeAgentInstructions("codex");
+      console.log(`Wrote ${instructionsPath}`);
     }
     return;
   }
@@ -1081,9 +1178,27 @@ async function mcp(subcommand: string | undefined, rest: string[]) {
   const preview = claudeProjectMcpConfig();
   console.log("Project .mcp.json preview:");
   console.log(JSON.stringify(preview, null, 2));
+  printInstructionPreview("claude");
   if (flags.write) {
     const configPath = writeClaudeProjectConfig();
     console.log(`Wrote ${configPath}`);
+    const instructionsPath = writeAgentInstructions("claude");
+    console.log(`Wrote ${instructionsPath}`);
+  }
+}
+
+async function instructions(subcommand: string | undefined, rest: string[]) {
+  const target = [subcommand, ...rest].find((arg) => arg === "codex" || arg === "claude") as AgentClientTarget | undefined;
+  const flags = parseFlags([subcommand, ...rest].filter(Boolean) as string[]);
+  if (!target) {
+    console.log("Usage: agentzcash instructions codex|claude [--write]");
+    return;
+  }
+
+  printInstructionPreview(target);
+  if (flags.write) {
+    const instructionsPath = writeAgentInstructions(target);
+    console.log(`Wrote ${instructionsPath}`);
   }
 }
 
@@ -1199,6 +1314,77 @@ function writeClaudeProjectConfig(): string {
   return file;
 }
 
+function agentInstructionsMarkdown(): string {
+  return [
+    "Use the `agentzcash` MCP server for ZEC payment requests. Never approve, reject, submit, send, or otherwise complete a payment autonomously.",
+    "",
+    "For a direct shielded transfer:",
+    "",
+    "1. Call `prepare_direct_transfer` with recipient name, exact shielded-capable Zcash address, amount in ZEC, memo, purpose, evidence URLs, and verification notes.",
+    "2. Use only shielded-capable recipient addresses that start with `u1`, `utest`, `zs`, or `ztestsapling`. Transparent-only `t1` and `t3` addresses are blocked.",
+    "3. Return the `approvalUrl` from the tool result to the user.",
+    "4. Tell the user to review and approve or reject the payment in the AgentZcash dashboard.",
+    "5. After the user says they approved it, call `get_agentzcash_state` and report whether the transfer is `pending_confirmation`, `receipted`, `payment_failed`, or `verification_failed`.",
+    "",
+    "If policy blocks the request, report the policy result and do not suggest bypassing dashboard approval."
+  ].join("\n");
+}
+
+function instructionFileName(target: AgentClientTarget): string {
+  return target === "codex" ? "AGENTS.md" : "CLAUDE.md";
+}
+
+function instructionClientName(target: AgentClientTarget): string {
+  return target === "codex" ? "Codex" : "Claude Code";
+}
+
+function printInstructionPreview(target: AgentClientTarget): void {
+  const file = path.join(projectRoot(), instructionFileName(target));
+  console.log("");
+  console.log(`${instructionClientName(target)} installed instructions target: ${file}`);
+  console.log(`Preview section: ## ${AGENTZCASH_INSTRUCTIONS_HEADING}`);
+  console.log(agentInstructionsMarkdown());
+}
+
+function writeAgentInstructions(target: AgentClientTarget): string {
+  const root = projectRoot();
+  const file = path.join(root, instructionFileName(target));
+  const existing = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  const next = upsertMarkdownSection(existing, AGENTZCASH_INSTRUCTIONS_HEADING, agentInstructionsMarkdown());
+  fs.writeFileSync(file, next);
+  return file;
+}
+
+function checkAgentInstructions(root: string, target: AgentClientTarget): DoctorCheck {
+  const file = path.join(root, instructionFileName(target));
+  const expected = [
+    AGENTZCASH_INSTRUCTIONS_HEADING,
+    "prepare_direct_transfer",
+    "get_agentzcash_state",
+    "Never approve",
+    "u1",
+    "ztestsapling"
+  ];
+
+  if (!fs.existsSync(file)) {
+    return {
+      label: `${instructionClientName(target)} agent instructions`,
+      ok: false,
+      detail: file,
+      fix: `Run: npx agentzcash instructions ${target} --write`
+    };
+  }
+
+  const contents = fs.readFileSync(file, "utf8");
+  const missing = expected.filter((text) => !contents.includes(text));
+  return {
+    label: `${instructionClientName(target)} agent instructions`,
+    ok: missing.length === 0,
+    detail: missing.length ? `Missing: ${missing.join(", ")}` : file,
+    fix: `Run: npx agentzcash instructions ${target} --write`
+  };
+}
+
 function writeCodexProjectConfig(): string {
   const root = projectRoot();
   const dir = path.join(root, ".codex");
@@ -1216,6 +1402,30 @@ function writeCodexProjectConfig(): string {
   const next = upsertTomlTable(existing, "mcp_servers.agentzcash", block);
   fs.writeFileSync(file, `${next.trim()}\n`);
   return file;
+}
+
+function upsertMarkdownSection(existing: string, heading: string, body: string): string {
+  const sectionLines = [`## ${heading}`, "", ...body.trim().split("\n")];
+  if (!existing.trim()) {
+    return ["# Agent Instructions", "", ...sectionLines, ""].join("\n");
+  }
+
+  const lines = existing.replace(/\r\n/g, "\n").split("\n");
+  const header = `## ${heading}`;
+  const start = lines.findIndex((line) => line.trim() === header);
+  if (start === -1) {
+    return `${existing.trim()}\n\n${sectionLines.join("\n")}\n`;
+  }
+
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^##\s+/.test(lines[i] ?? "")) {
+      end = i;
+      break;
+    }
+  }
+
+  return [...lines.slice(0, start), ...sectionLines, ...lines.slice(end)].join("\n").trimEnd() + "\n";
 }
 
 function upsertTomlTable(existing: string, tableName: string, replacement: string): string {
@@ -1279,6 +1489,7 @@ Usage:
   agentzcash wallet backup
   agentzcash mcp stdio
   agentzcash mcp install codex|claude [--write]
+  agentzcash instructions codex|claude [--write]
 `);
 }
 

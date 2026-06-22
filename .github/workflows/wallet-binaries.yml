@@ -13,12 +13,16 @@ on:
         description: "zingolib git ref or 'latest'."
         required: true
         default: "latest"
+      publish_npm:
+        description: "Publish AgentZcash packages to npm using NPM_TOKEN."
+        required: true
+        default: "false"
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  wallet-binaries:
     name: Build ${{ matrix.asset_suffix }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -98,9 +102,56 @@ jobs:
           name: wallet-binary-${{ matrix.asset_suffix }}
           path: artifacts/*
 
+  npm-packages:
+    name: Build npm release tarballs
+    runs-on: ubuntu-latest
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - name: Checkout AgentZcash
+        uses: actions/checkout@v4
+
+      - name: Use Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+
+      - name: Pack release tarballs
+        run: npm run release:pack
+
+      - name: Smoke test packed install
+        run: npm run release:smoke
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-packages
+          path: release-artifacts/npm/*
+
+      - name: Publish packages to npm
+        if: env.NPM_TOKEN != '' && (github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_npm == 'true'))
+        run: |
+          set -euo pipefail
+          printf "//registry.npmjs.org/:_authToken=%s\n" "$NPM_TOKEN" > ~/.npmrc
+          npm publish --access public --workspace @agentzcash/core
+          npm publish --access public --workspace @agentzcash/mcp-server
+          npm publish --access public --workspace @agentzcash/dashboard
+          npm publish --access public --workspace agentzcash
+
   publish:
     name: Upload Release Assets
-    needs: build
+    needs:
+      - wallet-binaries
+      - npm-packages
     runs-on: ubuntu-latest
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
     steps:

@@ -17,7 +17,7 @@ These instructions apply to the whole AgentZcash repository.
 - If verification cannot run, commit only when the risk is clear and report the reason.
 - If pushing fails because of authentication, network access, branch protection, or another external constraint, leave the local commit in place and report the exact blocker.
 
-## Payment Safety
+## AgentZcash Payment Safety
 
 Use the `agentzcash` MCP server for ZEC payments. Never approve or submit a payment autonomously.
 
