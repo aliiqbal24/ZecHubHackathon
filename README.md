@@ -68,7 +68,8 @@ npx agentzcash doctor --runtime
 
 ```bash
 npm install
-npm run dev
+npm run build
+npx agentzcash start
 ```
 
 Then open:
@@ -78,6 +79,12 @@ http://localhost:3000
 ```
 
 The dashboard is an approval and wallet status console. Purchases are created through MCP tool calls from an agent or client.
+
+For development hot reload instead of production startup:
+
+```bash
+npx agentzcash start --dev
+```
 
 ## Agent Connection
 

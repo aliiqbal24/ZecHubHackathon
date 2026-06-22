@@ -29,6 +29,8 @@ Services:
 - Dashboard: `http://localhost:3000`
 - MCP HTTP server: `http://localhost:3010`
 
+`npx agentzcash start` uses production build output when available. Use `npx agentzcash start --dev` for development hot reload.
+
 ## MCP Stdio
 
 Project-scoped configs are included:

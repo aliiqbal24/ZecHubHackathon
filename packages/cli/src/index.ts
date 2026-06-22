@@ -24,6 +24,7 @@ const execFileAsync = promisify(execFile);
 
 interface Flags {
   dryRun: boolean;
+  dev: boolean;
   noStart: boolean;
   write: boolean;
   loop: boolean;
@@ -46,7 +47,7 @@ async function main() {
         await init(parseFlags([subcommand, ...rest].filter(Boolean) as string[]));
         break;
       case "start":
-        await start();
+        await start(parseFlags([subcommand, ...rest].filter(Boolean) as string[]));
         break;
       case "doctor":
         await doctor(parseFlags([subcommand, ...rest].filter(Boolean) as string[]));
@@ -73,6 +74,7 @@ async function main() {
 function parseFlags(args: string[]): Flags {
   return {
     dryRun: args.includes("--dry-run"),
+    dev: args.includes("--dev"),
     noStart: args.includes("--no-start"),
     write: args.includes("--write"),
     loop: args.includes("--loop"),
@@ -134,24 +136,34 @@ async function init(flags: Flags) {
   console.log("Fund this address from an external wallet or exchange before approving spends.");
 
   if (!flags.noStart) {
-    await start();
+    await start(flags);
   }
 }
 
-async function start() {
-  console.log("Starting AgentZcash dashboard and MCP server...");
+async function start(flags: Flags) {
   const repoRoot = findRepoRoot(process.cwd());
-  if (!repoRoot) {
-    console.log("Start is available from the AgentZcash workspace in this build.");
-    console.log("Run the dashboard and MCP server packages directly after publishing them as runtime services.");
+
+  if (flags.dev) {
+    if (!repoRoot) {
+      throw new Error("Development start is only available from the AgentZcash workspace.");
+    }
+    console.log("Starting AgentZcash development services...");
+    spawnManaged("npm", ["run", "dev"], repoRoot, "AgentZcash dev");
+    console.log("Dashboard: http://localhost:3000");
+    console.log("MCP HTTP: http://localhost:3010");
     return;
   }
 
-  spawn("npm", ["run", "dev"], {
-    cwd: repoRoot,
-    stdio: "inherit",
-    shell: process.platform === "win32"
-  });
+  const runtime = await resolveRuntimeStart(repoRoot);
+  if (!runtime.ok) {
+    console.log(runtime.message);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`Starting AgentZcash ${runtime.mode} services...`);
+  spawnManaged(runtime.dashboard.command, runtime.dashboard.args, runtime.dashboard.cwd, "Dashboard", runtime.dashboard.env);
+  spawnManaged(runtime.mcp.command, runtime.mcp.args, runtime.mcp.cwd, "MCP HTTP", runtime.mcp.env);
   console.log("Dashboard: http://localhost:3000");
   console.log("MCP HTTP: http://localhost:3010");
 }
@@ -335,6 +347,119 @@ async function collectDoctorChecks(flags: Flags): Promise<DoctorCheck[]> {
   return checks;
 }
 
+interface StartCommand {
+  command: string;
+  args: string[];
+  cwd: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+type RuntimeStart =
+  | { ok: true; mode: "repo production" | "packaged production"; dashboard: StartCommand; mcp: StartCommand }
+  | { ok: false; message: string };
+
+async function resolveRuntimeStart(repoRoot: string | undefined): Promise<RuntimeStart> {
+  if (repoRoot) {
+    const dashboardBuildId = path.join(repoRoot, "apps", "dashboard", ".next", "BUILD_ID");
+    const dashboardServer = path.join(repoRoot, "apps", "dashboard", ".next", "standalone", "apps", "dashboard", "server.js");
+    const mcpServer = path.join(repoRoot, "apps", "mcp-server", "dist", "index.js");
+    const missing: string[] = [];
+    if (!fs.existsSync(dashboardBuildId)) missing.push("dashboard production build");
+    if (!fs.existsSync(dashboardServer)) missing.push("dashboard standalone server");
+    if (!fs.existsSync(mcpServer)) missing.push("MCP HTTP build output");
+
+    if (missing.length) {
+      return {
+        ok: false,
+        message: [
+          `Cannot start production services; missing ${missing.join(" and ")}.`,
+          "Run:",
+          "  npm run build",
+          "",
+          "For development mode, run:",
+          "  npx agentzcash start --dev"
+        ].join("\n")
+      };
+    }
+
+    return {
+      ok: true,
+      mode: "repo production",
+      dashboard: {
+        command: process.execPath,
+        args: [dashboardServer],
+        cwd: path.dirname(dashboardServer),
+        env: { ...process.env, PORT: process.env.PORT ?? "3000" }
+      },
+      mcp: {
+        command: process.execPath,
+        args: [mcpServer],
+        cwd: repoRoot
+      }
+    };
+  }
+
+  const packaged = await resolvePackagedRuntimeStart();
+  if (packaged) return packaged;
+
+  return {
+    ok: false,
+    message: [
+      "Packaged runtime files were not found.",
+      "Install a package that includes @agentzcash/dashboard standalone output and @agentzcash/mcp-server dist output.",
+      "",
+      "Repo-mode fallback:",
+      "  git clone <repo-url>",
+      "  npm install",
+      "  npm run build",
+      "  npx agentzcash start"
+    ].join("\n")
+  };
+}
+
+async function resolvePackagedRuntimeStart(): Promise<RuntimeStart | undefined> {
+  const dashboardRoot = await resolvePackageRoot("@agentzcash/dashboard/package.json");
+  const mcpServer = await resolvePackageFile("@agentzcash/mcp-server/dist/index.js");
+  if (!dashboardRoot || !mcpServer) return undefined;
+
+  const standaloneServer = path.join(dashboardRoot, ".next", "standalone", "apps", "dashboard", "server.js");
+  if (!fs.existsSync(standaloneServer) || !fs.existsSync(mcpServer)) return undefined;
+
+  return {
+    ok: true,
+    mode: "packaged production",
+    dashboard: {
+      command: process.execPath,
+      args: [standaloneServer],
+      cwd: path.dirname(standaloneServer),
+      env: { ...process.env, PORT: process.env.PORT ?? "3000" }
+    },
+    mcp: {
+      command: process.execPath,
+      args: [mcpServer],
+      cwd: path.dirname(mcpServer)
+    }
+  };
+}
+
+function spawnManaged(
+  command: string,
+  args: string[],
+  cwd: string,
+  label: string,
+  env: NodeJS.ProcessEnv = process.env
+): void {
+  const child = spawn(command, args, {
+    cwd,
+    env,
+    stdio: "inherit",
+    shell: process.platform === "win32" && command !== process.execPath
+  });
+  child.on("error", (error) => {
+    console.error(`${label} failed to start: ${error.message}`);
+  });
+}
+
 async function collectRuntimeDoctorChecks(): Promise<DoctorCheck[]> {
   const checks: DoctorCheck[] = [];
   const repoRoot = findRepoRoot(process.cwd());
@@ -405,30 +530,45 @@ async function collectRuntimeDoctorChecks(): Promise<DoctorCheck[]> {
       fix: "Run: npm run build -w @agentzcash/dashboard"
     });
     checks.push({
+      label: "Dashboard standalone server",
+      ok: fs.existsSync(path.join(repoRoot, "apps", "dashboard", ".next", "standalone", "apps", "dashboard", "server.js")),
+      detail: path.join(repoRoot, "apps", "dashboard", ".next", "standalone", "apps", "dashboard", "server.js"),
+      fix: "Run: npm run build -w @agentzcash/dashboard"
+    });
+    checks.push({
       label: "Dashboard start script",
-      ok: packageScriptEquals(path.join(repoRoot, "apps", "dashboard", "package.json"), "start", "next start --port 3000"),
+      ok: packageScriptEquals(
+        path.join(repoRoot, "apps", "dashboard", "package.json"),
+        "start",
+        "node .next/standalone/apps/dashboard/server.js"
+      ),
       detail: "apps/dashboard package start script",
-      fix: "Restore @agentzcash/dashboard start script to: next start --port 3000"
+      fix: "Restore @agentzcash/dashboard start script to: node .next/standalone/apps/dashboard/server.js"
     });
   } else {
     checks.push(await resolveRuntimeModuleCheck("Core runtime module", "@agentzcash/core"));
     checks.push(await resolveRuntimeModuleCheck("MCP stdio runtime module", "@agentzcash/mcp-server/dist/stdio.js"));
+    const dashboardRoot = await resolvePackageRoot("@agentzcash/dashboard/package.json");
+    const standaloneServer = dashboardRoot
+      ? path.join(dashboardRoot, ".next", "standalone", "apps", "dashboard", "server.js")
+      : undefined;
     checks.push({
       label: "Dashboard packaged runtime",
-      ok: false,
-      detail: "Packaged dashboard startup is not implemented yet.",
-      fix: "Use repo mode for now: clone, npm install, npm run build, npx agentzcash start"
+      ok: Boolean(standaloneServer && fs.existsSync(standaloneServer)),
+      detail: standaloneServer ?? "Could not resolve @agentzcash/dashboard/package.json.",
+      fix: "Install a package that includes @agentzcash/dashboard .next/standalone output."
     });
   }
 
   checks.push(await checkCliMcpPreview());
+  const runtimeStart = await resolveRuntimeStart(repoRoot);
   checks.push({
     label: "Start mode",
-    ok: Boolean(repoRoot),
-    detail: repoRoot
-      ? "agentzcash start currently launches repo dev services with npm run dev."
-      : "agentzcash start cannot launch packaged services yet.",
-    fix: "Production packaged dashboard/MCP startup is still a TODO."
+    ok: runtimeStart.ok,
+    detail: runtimeStart.ok
+      ? `agentzcash start will use ${runtimeStart.mode}.`
+      : runtimeStart.message.replace(/\s+/g, " "),
+    fix: "Fix the missing runtime files above, then run: npx agentzcash doctor --runtime"
   });
 
   return checks;
@@ -495,6 +635,20 @@ async function resolveRuntimeModuleCheck(label: string, specifier: string): Prom
       detail: oneLineError(error),
       fix: `Install package dependency that provides ${specifier}.`
     };
+  }
+}
+
+async function resolvePackageRoot(packageJsonSpecifier: string): Promise<string | undefined> {
+  const packageJson = await resolvePackageFile(packageJsonSpecifier);
+  return packageJson ? path.dirname(packageJson) : undefined;
+}
+
+async function resolvePackageFile(specifier: string): Promise<string | undefined> {
+  try {
+    const resolved = import.meta.resolve(specifier);
+    return fileURLToPath(resolved);
+  } catch {
+    return undefined;
   }
 }
 
@@ -674,8 +828,8 @@ function printLoopSummary(checks: DoctorCheck[]): void {
 function printRuntimeSummary(checks: DoctorCheck[]): void {
   if (!checks.some((check) => !check.ok)) {
     console.log("");
-    console.log("READY Runtime shape is ready for the current repo-mode startup path.");
-    console.log("Note: agentzcash start still uses repo dev services; packaged production startup is not implemented yet.");
+    console.log("READY Runtime shape is ready for production startup.");
+    console.log("Run: npx agentzcash start");
     return;
   }
 
@@ -1137,7 +1291,7 @@ function printHelp() {
 
 Usage:
   agentzcash init [--dry-run] [--no-start]
-  agentzcash start
+  agentzcash start [--dev]
   agentzcash doctor [--loop|--runtime]
   agentzcash install-wallet
   agentzcash wallet doctor
