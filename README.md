@@ -58,6 +58,12 @@ npx agentzcash doctor --loop
 
 The loop doctor checks wallet readiness, project MCP config, build outputs, the MCP tool surface, and a no-funds direct-transfer prepare smoke test. It does not approve or submit a payment.
 
+Check whether the current checkout/install has the built runtime pieces needed for repo-mode startup:
+
+```bash
+npx agentzcash doctor --runtime
+```
+
 ## Workspace Development
 
 ```bash

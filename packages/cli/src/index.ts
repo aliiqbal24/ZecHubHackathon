@@ -2,7 +2,7 @@
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { promisify } from "node:util";
@@ -27,6 +27,7 @@ interface Flags {
   noStart: boolean;
   write: boolean;
   loop: boolean;
+  runtime: boolean;
 }
 
 interface DoctorCheck {
@@ -74,7 +75,8 @@ function parseFlags(args: string[]): Flags {
     dryRun: args.includes("--dry-run"),
     noStart: args.includes("--no-start"),
     write: args.includes("--write"),
-    loop: args.includes("--loop")
+    loop: args.includes("--loop"),
+    runtime: args.includes("--runtime")
   };
 }
 
@@ -155,13 +157,21 @@ async function start() {
 }
 
 async function doctor(flags: Flags) {
-  const checks = await collectDoctorChecks(flags);
+  const checks = flags.runtime ? await collectRuntimeDoctorChecks() : await collectDoctorChecks(flags);
 
   for (const check of checks) {
     console.log(`${check.ok ? "PASS" : "FAIL"} ${check.label}: ${check.detail}`);
     if (!check.ok && check.fix) {
       console.log(`  Fix: ${check.fix}`);
     }
+  }
+
+  if (flags.runtime) {
+    printRuntimeSummary(checks);
+    if (checks.some((check) => !check.ok)) {
+      process.exitCode = 1;
+    }
+    return;
   }
 
   if (flags.loop) {
@@ -325,6 +335,105 @@ async function collectDoctorChecks(flags: Flags): Promise<DoctorCheck[]> {
   return checks;
 }
 
+async function collectRuntimeDoctorChecks(): Promise<DoctorCheck[]> {
+  const checks: DoctorCheck[] = [];
+  const repoRoot = findRepoRoot(process.cwd());
+  const cliEntry = process.argv[1] ? path.resolve(process.argv[1]) : fileURLToPath(import.meta.url);
+
+  checks.push({
+    label: "Node",
+    ok: Number(process.versions.node.split(".")[0] ?? 0) >= 20,
+    detail: process.version,
+    fix: "Install Node.js 20 or newer."
+  });
+  checks.push({
+    label: "Runtime mode",
+    ok: true,
+    detail: repoRoot ? `repo checkout: ${repoRoot}` : "installed package mode"
+  });
+  checks.push({
+    label: "CLI entry",
+    ok: fs.existsSync(cliEntry),
+    detail: cliEntry,
+    fix: "Run: npm run build -w agentzcash"
+  });
+
+  const cliPackagePath = findCliPackageJson(cliEntry, repoRoot);
+  checks.push({
+    label: "CLI package metadata",
+    ok: Boolean(cliPackagePath),
+    detail: cliPackagePath ?? "Could not locate agentzcash package.json.",
+    fix: "Run from a built AgentZcash checkout or install the agentzcash package."
+  });
+
+  if (repoRoot) {
+    checks.push({
+      label: "npm install",
+      ok: fs.existsSync(path.join(repoRoot, "node_modules")),
+      detail: path.join(repoRoot, "node_modules"),
+      fix: "Run: npm install"
+    });
+    checks.push(checkPackageScript(repoRoot, "build", "npm run build -w @agentzcash/core && npm run build -w agentzcash && npm run build -w @agentzcash/mcp-server && npm run build -w @agentzcash/dashboard"));
+    checks.push({
+      label: "Core build output",
+      ok: fs.existsSync(path.join(repoRoot, "packages", "core", "dist", "index.js")),
+      detail: path.join(repoRoot, "packages", "core", "dist", "index.js"),
+      fix: "Run: npm run build -w @agentzcash/core"
+    });
+    checks.push({
+      label: "CLI build output",
+      ok: fs.existsSync(path.join(repoRoot, "packages", "cli", "dist", "index.js")),
+      detail: path.join(repoRoot, "packages", "cli", "dist", "index.js"),
+      fix: "Run: npm run build -w agentzcash"
+    });
+    checks.push({
+      label: "MCP stdio build output",
+      ok: fs.existsSync(path.join(repoRoot, "apps", "mcp-server", "dist", "stdio.js")),
+      detail: path.join(repoRoot, "apps", "mcp-server", "dist", "stdio.js"),
+      fix: "Run: npm run build -w @agentzcash/mcp-server"
+    });
+    checks.push({
+      label: "MCP tools build output",
+      ok: fs.existsSync(path.join(repoRoot, "apps", "mcp-server", "dist", "tools.js")),
+      detail: path.join(repoRoot, "apps", "mcp-server", "dist", "tools.js"),
+      fix: "Run: npm run build -w @agentzcash/mcp-server"
+    });
+    checks.push({
+      label: "Dashboard production build",
+      ok: fs.existsSync(path.join(repoRoot, "apps", "dashboard", ".next", "BUILD_ID")),
+      detail: path.join(repoRoot, "apps", "dashboard", ".next", "BUILD_ID"),
+      fix: "Run: npm run build -w @agentzcash/dashboard"
+    });
+    checks.push({
+      label: "Dashboard start script",
+      ok: packageScriptEquals(path.join(repoRoot, "apps", "dashboard", "package.json"), "start", "next start --port 3000"),
+      detail: "apps/dashboard package start script",
+      fix: "Restore @agentzcash/dashboard start script to: next start --port 3000"
+    });
+  } else {
+    checks.push(await resolveRuntimeModuleCheck("Core runtime module", "@agentzcash/core"));
+    checks.push(await resolveRuntimeModuleCheck("MCP stdio runtime module", "@agentzcash/mcp-server/dist/stdio.js"));
+    checks.push({
+      label: "Dashboard packaged runtime",
+      ok: false,
+      detail: "Packaged dashboard startup is not implemented yet.",
+      fix: "Use repo mode for now: clone, npm install, npm run build, npx agentzcash start"
+    });
+  }
+
+  checks.push(await checkCliMcpPreview());
+  checks.push({
+    label: "Start mode",
+    ok: Boolean(repoRoot),
+    detail: repoRoot
+      ? "agentzcash start currently launches repo dev services with npm run dev."
+      : "agentzcash start cannot launch packaged services yet.",
+    fix: "Production packaged dashboard/MCP startup is still a TODO."
+  });
+
+  return checks;
+}
+
 function checkPackageScript(repoRoot: string, scriptName: string, expected: string): DoctorCheck {
   const packagePath = path.join(repoRoot, "package.json");
   try {
@@ -342,6 +451,72 @@ function checkPackageScript(repoRoot: string, scriptName: string, expected: stri
       ok: false,
       detail: oneLineError(error),
       fix: "Run this command from a valid AgentZcash repo checkout."
+    };
+  }
+}
+
+function packageScriptEquals(packagePath: string, scriptName: string, expected: string): boolean {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(packagePath, "utf8")) as { scripts?: Record<string, string> };
+    return parsed.scripts?.[scriptName] === expected;
+  } catch {
+    return false;
+  }
+}
+
+function findCliPackageJson(cliEntry: string, repoRoot: string | undefined): string | undefined {
+  const candidates = [
+    repoRoot ? path.join(repoRoot, "packages", "cli", "package.json") : undefined,
+    path.resolve(path.dirname(cliEntry), "..", "package.json"),
+    path.resolve(path.dirname(cliEntry), "..", "..", "package.json")
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(candidate, "utf8")) as { name?: string };
+      if (parsed.name === "agentzcash") return candidate;
+    } catch {
+      // Keep looking.
+    }
+  }
+
+  return undefined;
+}
+
+async function resolveRuntimeModuleCheck(label: string, specifier: string): Promise<DoctorCheck> {
+  try {
+    const resolved = import.meta.resolve(specifier);
+    return { label, ok: true, detail: resolved };
+  } catch (error) {
+    return {
+      label,
+      ok: false,
+      detail: oneLineError(error),
+      fix: `Install package dependency that provides ${specifier}.`
+    };
+  }
+}
+
+async function checkCliMcpPreview(): Promise<DoctorCheck> {
+  const cliEntry = process.argv[1] ? path.resolve(process.argv[1]) : fileURLToPath(import.meta.url);
+  try {
+    const { stdout } = await execFileAsync(process.execPath, [cliEntry, "mcp", "install", "codex"], {
+      timeout: 15_000
+    });
+    const expected = "codex mcp add agentzcash -- npx agentzcash mcp stdio";
+    return {
+      label: "CLI MCP install preview",
+      ok: stdout.includes(expected),
+      detail: stdout.trim().replace(/\s+/g, " "),
+      fix: `Expected preview to include: ${expected}`
+    };
+  } catch (error) {
+    return {
+      label: "CLI MCP install preview",
+      ok: false,
+      detail: oneLineError(error),
+      fix: "Run: npm run build -w agentzcash"
     };
   }
 }
@@ -494,6 +669,19 @@ function printLoopSummary(checks: DoctorCheck[]): void {
     console.log("  npx agentzcash wallet receive");
     console.log("  npx agentzcash wallet balance");
   }
+}
+
+function printRuntimeSummary(checks: DoctorCheck[]): void {
+  if (!checks.some((check) => !check.ok)) {
+    console.log("");
+    console.log("READY Runtime shape is ready for the current repo-mode startup path.");
+    console.log("Note: agentzcash start still uses repo dev services; packaged production startup is not implemented yet.");
+    return;
+  }
+
+  console.log("");
+  console.log("RUNTIME NOT READY Fix the failed checks above, then run:");
+  console.log("  npx agentzcash doctor --runtime");
 }
 
 function oneLineError(error: unknown): string {
@@ -950,7 +1138,7 @@ function printHelp() {
 Usage:
   agentzcash init [--dry-run] [--no-start]
   agentzcash start
-  agentzcash doctor [--loop]
+  agentzcash doctor [--loop|--runtime]
   agentzcash install-wallet
   agentzcash wallet doctor
   agentzcash wallet receive

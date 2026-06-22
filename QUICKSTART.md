@@ -31,6 +31,12 @@ npm install
 npm run build
 ```
 
+Check the built repo/runtime shape:
+
+```bash
+npx agentzcash doctor --runtime
+```
+
 If you are developing from this checkout, you can also run the no-funds software loop test:
 
 ```bash
