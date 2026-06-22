@@ -29,6 +29,13 @@ The installer creates or resumes the managed AgentZcash wallet, shows the recove
 
 Use `npx agentzcash init --dry-run` to preview setup without creating a wallet.
 
+If Zingo CLI is missing, run:
+
+```bash
+npx agentzcash install-wallet
+npx agentzcash wallet doctor
+```
+
 ## Fund The Agent Wallet
 
 ```bash

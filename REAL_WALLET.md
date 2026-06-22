@@ -16,6 +16,18 @@ If Zingo CLI is not on `PATH`, set:
 AGENTZCASH_ZINGO_CLI=/absolute/path/to/zingo-cli
 ```
 
+For platform-specific setup guidance, run:
+
+```bash
+npx agentzcash install-wallet
+```
+
+To check whether the local Zingo CLI dependency, managed wallet directory, config, and spendable balance are ready, run:
+
+```bash
+npx agentzcash wallet doctor
+```
+
 ## Generated Config
 
 `~/.agentzcash/agentzcash.config.yaml` uses the managed Zingo preset:

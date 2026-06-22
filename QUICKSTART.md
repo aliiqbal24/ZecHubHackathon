@@ -15,6 +15,13 @@ AgentZcash does not let an agent approve or submit payment by itself. The agent 
 
 Transparent-only `t1` and `t3` recipient addresses are blocked for direct agent transfers.
 
+Check the wallet dependency before initializing:
+
+```bash
+npx agentzcash install-wallet
+npx agentzcash wallet doctor
+```
+
 ## 1. Download And Build
 
 ```bash
@@ -47,11 +54,23 @@ During setup, AgentZcash:
 
 If Zingo CLI is not found, set the binary path and run init again.
 
+You can print platform-specific setup guidance at any time:
+
+```bash
+npx agentzcash install-wallet
+```
+
 PowerShell:
 
 ```powershell
 $env:AGENTZCASH_ZINGO_CLI="C:\absolute\path\to\zingo-cli.exe"
 npx agentzcash init
+```
+
+Before funding, you can check the managed wallet state:
+
+```bash
+npx agentzcash wallet doctor
 ```
 
 macOS/Linux:
