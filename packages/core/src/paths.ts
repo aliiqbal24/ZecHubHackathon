@@ -16,3 +16,8 @@ export function getStatePath(): string {
 export function getManagedWalletDir(): string {
   return path.join(getAgentZcashHome(), "wallet");
 }
+
+export function getManagedZingoCliPath(): string {
+  const executable = process.platform === "win32" ? "zingo-cli.exe" : "zingo-cli";
+  return path.join(getAgentZcashHome(), "zingo-cli", "bin", executable);
+}

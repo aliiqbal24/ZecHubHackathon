@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
+import fs from "node:fs";
 import { promisify } from "node:util";
-import { getManagedWalletDir } from "./paths.js";
+import { getManagedWalletDir, getManagedZingoCliPath } from "./paths.js";
 import { zatsToZec, zecToZats } from "./money.js";
 import type {
   PaymentRecord,
@@ -25,9 +26,9 @@ export const WALLET_PRESETS: Record<WalletPresetName, WalletPreset> = {
   "zingo-cli": {
     name: "zingo-cli",
     label: "Zingo CLI",
-    sendCommandTemplate: "zingo-cli --data-dir \"{walletDir}\" send '[{\"address\":\"{to}\",\"amount\":{amount},\"memo\":\"{memo}\"}]'",
-    balanceCommand: "zingo-cli --data-dir \"{walletDir}\" --waitsync balance",
-    transactionCheckCommandTemplate: "zingo-cli --data-dir \"{walletDir}\" notes"
+    sendCommandTemplate: "\"{zingoCli}\" --data-dir \"{walletDir}\" send '[{\"address\":\"{to}\",\"amount\":{amount},\"memo\":\"{memo}\"}]'",
+    balanceCommand: "\"{zingoCli}\" --data-dir \"{walletDir}\" --waitsync balance",
+    transactionCheckCommandTemplate: "\"{zingoCli}\" --data-dir \"{walletDir}\" notes"
   },
   zallet: {
     name: "zallet",
@@ -134,7 +135,13 @@ export function resolveCliCommands(config: AgentZcashConfig): {
 }
 
 function expandWalletTemplate(value: string | undefined): string | undefined {
-  return value?.replaceAll("{walletDir}", getManagedWalletDir());
+  return value?.replaceAll("{walletDir}", getManagedWalletDir()).replaceAll("{zingoCli}", resolveZingoCliCommand());
+}
+
+function resolveZingoCliCommand(): string {
+  if (process.env.AGENTZCASH_ZINGO_CLI) return process.env.AGENTZCASH_ZINGO_CLI;
+  const managed = getManagedZingoCliPath();
+  return fs.existsSync(managed) ? managed : "zingo-cli";
 }
 
 export function parseCliError(err: unknown, command: string): Error {

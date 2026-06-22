@@ -9,13 +9,13 @@ AgentZcash does not let an agent approve or submit payment by itself. The agent 
 - Node.js 20 or newer
 - npm
 - Git
+- Rust/Cargo, if AgentZcash needs to build Zingo CLI from source
 - Codex or Claude Code
-- Zingo CLI available as `zingo-cli` on `PATH`, or `AGENTZCASH_ZINGO_CLI` set to the absolute binary path
 - A shielded-capable Zcash recipient address that starts with `u1`, `utest`, `zs`, or `ztestsapling`
 
 Transparent-only `t1` and `t3` recipient addresses are blocked for direct agent transfers.
 
-Check the wallet dependency before initializing:
+Install the wallet dependency before initializing. AgentZcash installs `zingo-cli` into `~/.agentzcash/zingo-cli` when it is not already available:
 
 ```bash
 npx agentzcash install-wallet
@@ -58,20 +58,14 @@ During setup, AgentZcash:
 - prints the wallet receive address
 - starts the dashboard and local MCP HTTP server when possible
 
-If Zingo CLI is not found, set the binary path and run init again.
-
-You can print platform-specific setup guidance at any time:
+If Zingo CLI is not found during init, run the managed installer and then run init again:
 
 ```bash
 npx agentzcash install-wallet
-```
-
-PowerShell:
-
-```powershell
-$env:AGENTZCASH_ZINGO_CLI="C:\absolute\path\to\zingo-cli.exe"
 npx agentzcash init
 ```
+
+Use `npx agentzcash install-wallet --force` to rebuild or replace the managed binary.
 
 Before funding, you can check the managed wallet state:
 
@@ -79,12 +73,6 @@ Before funding, you can check the managed wallet state:
 npx agentzcash wallet doctor
 ```
 
-macOS/Linux:
-
-```bash
-export AGENTZCASH_ZINGO_CLI=/absolute/path/to/zingo-cli
-npx agentzcash init
-```
 
 ## 3. Fund The Agent Wallet
 

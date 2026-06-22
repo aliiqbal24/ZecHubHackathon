@@ -2,6 +2,7 @@ export * from "./types.js";
 export * from "./money.js";
 export * from "./schemas.js";
 export * from "./config.js";
+export * from "./paths.js";
 export * from "./state.js";
 export * from "./policy.js";
 export * from "./receipt.js";

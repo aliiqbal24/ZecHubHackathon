@@ -22,6 +22,7 @@ git clone <repo-url>
 cd AgentZcash
 npm install
 npm run build
+npx agentzcash install-wallet
 npx agentzcash init
 ```
 
@@ -29,12 +30,14 @@ The installer creates or resumes the managed AgentZcash wallet, shows the recove
 
 Use `npx agentzcash init --dry-run` to preview setup without creating a wallet.
 
-If Zingo CLI is missing, run:
+If Zingo CLI is missing, install the managed dependency:
 
 ```bash
 npx agentzcash install-wallet
 npx agentzcash wallet doctor
 ```
+
+`install-wallet` installs `zingo-cli` under `~/.agentzcash/zingo-cli` when no existing binary is found, using one Cargo build job to keep memory use lower on developer machines.
 
 ## Fund The Agent Wallet
 

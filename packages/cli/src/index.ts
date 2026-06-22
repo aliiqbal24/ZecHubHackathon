@@ -19,6 +19,13 @@ import {
   saveState,
   zatsToZec
 } from "@agentzcash/core";
+import {
+  ensureZingoAvailable,
+  findZingoCommand,
+  installManagedZingoCli,
+  printZingoInstallGuidance,
+  zingoCommand
+} from "./zingo-install.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -29,6 +36,7 @@ interface Flags {
   write: boolean;
   loop: boolean;
   runtime: boolean;
+  force: boolean;
 }
 
 interface DoctorCheck {
@@ -53,7 +61,7 @@ async function main() {
         await doctor(parseFlags([subcommand, ...rest].filter(Boolean) as string[]));
         break;
       case "install-wallet":
-        await installWallet();
+        await installWallet(parseFlags([subcommand, ...rest].filter(Boolean) as string[]));
         break;
       case "wallet":
         await wallet(subcommand, rest);
@@ -78,7 +86,8 @@ function parseFlags(args: string[]): Flags {
     noStart: args.includes("--no-start"),
     write: args.includes("--write"),
     loop: args.includes("--loop"),
-    runtime: args.includes("--runtime")
+    runtime: args.includes("--runtime"),
+    force: args.includes("--force")
   };
 }
 
@@ -877,20 +886,34 @@ async function wallet(subcommand: string | undefined, rest: string[]) {
   }
 }
 
-async function installWallet() {
+async function installWallet(flags: Flags) {
   console.log("AgentZcash wallet dependency: Zingo CLI");
   console.log("");
   const found = await findZingoCommand();
-  if (found) {
+  if (found && !flags.force) {
     console.log(`Found zingo-cli: ${found}`);
     console.log("You can continue with:");
     console.log("  npx agentzcash init");
     return;
   }
 
-  console.log("No zingo-cli binary was found on PATH or AGENTZCASH_ZINGO_CLI.");
+  if (found && flags.force) {
+    console.log(`Replacing existing zingo-cli: ${found}`);
+  } else {
+    console.log("No zingo-cli binary was found on PATH, AGENTZCASH_ZINGO_CLI, or the managed AgentZcash install path.");
+  }
   console.log("");
-  printZingoInstallGuidance();
+  try {
+    const installed = await installManagedZingoCli({ force: flags.force, jobs: 1 });
+    console.log("");
+    console.log(`Installed zingo-cli: ${installed}`);
+    console.log("AgentZcash will use this managed binary automatically.");
+    console.log("You can continue with:");
+    console.log("  npx agentzcash init");
+  } catch (error) {
+    printZingoInstallGuidance();
+    throw error;
+  }
 }
 
 async function walletDoctor() {
@@ -1056,75 +1079,6 @@ async function runWorkspaceScript(workspace: string, script: string): Promise<vo
       else reject(new Error(`${workspace}:${script} exited with code ${code ?? "unknown"}.`));
     });
   });
-}
-
-async function ensureZingoAvailable() {
-  try {
-    await execFileAsync(zingoCommand(), ["--help"], { timeout: 15_000 });
-  } catch {
-    throw new Error(
-      [
-        `Zingo CLI binary not found or not executable: ${zingoCommand()}`,
-        "Install/build zingo-cli, then set AGENTZCASH_ZINGO_CLI to its absolute path if it is not on PATH.",
-        "AgentZcash guidance:",
-        "  npx agentzcash install-wallet",
-        "Build from source:",
-        "  git clone https://github.com/zingolabs/zingolib.git",
-        "  cd zingolib",
-        "  cargo build --release --package zingo-cli"
-      ].join("\n")
-    );
-  }
-}
-
-function zingoCommand(): string {
-  return process.env.AGENTZCASH_ZINGO_CLI ?? "zingo-cli";
-}
-
-async function findZingoCommand(): Promise<string | undefined> {
-  if (process.env.AGENTZCASH_ZINGO_CLI) {
-    return process.env.AGENTZCASH_ZINGO_CLI;
-  }
-
-  const lookupCommand = process.platform === "win32" ? "where.exe" : "which";
-  try {
-    const { stdout } = await execFileAsync(lookupCommand, ["zingo-cli"], { timeout: 10_000 });
-    return stdout.trim().split(/\r?\n/).find(Boolean);
-  } catch {
-    return undefined;
-  }
-}
-
-function printZingoInstallGuidance(): void {
-  console.log("Build Zingo CLI from source:");
-  console.log("");
-  console.log("  git clone https://github.com/zingolabs/zingolib.git");
-  console.log("  cd zingolib");
-  console.log("  cargo build --release --package zingo-cli");
-  console.log("");
-
-  if (process.platform === "win32") {
-    console.log("Then point AgentZcash at the built binary in PowerShell:");
-    console.log("");
-    console.log('  $env:AGENTZCASH_ZINGO_CLI="C:\\path\\to\\zingolib\\target\\release\\zingo-cli.exe"');
-    console.log("  npx agentzcash wallet doctor");
-    console.log("  npx agentzcash init");
-    console.log("");
-    console.log("To persist the setting for future PowerShell windows:");
-    console.log("");
-    console.log('  setx AGENTZCASH_ZINGO_CLI "C:\\path\\to\\zingolib\\target\\release\\zingo-cli.exe"');
-    return;
-  }
-
-  console.log("Then point AgentZcash at the built binary:");
-  console.log("");
-  console.log("  export AGENTZCASH_ZINGO_CLI=/path/to/zingolib/target/release/zingo-cli");
-  console.log("  npx agentzcash wallet doctor");
-  console.log("  npx agentzcash init");
-  console.log("");
-  console.log("To make it available on PATH instead:");
-  console.log("");
-  console.log("  sudo install -m 0755 target/release/zingo-cli /usr/local/bin/zingo-cli");
 }
 
 async function readWalletSeed(walletDir: string): Promise<string> {
@@ -1293,7 +1247,7 @@ Usage:
   agentzcash init [--dry-run] [--no-start]
   agentzcash start [--dev]
   agentzcash doctor [--loop|--runtime]
-  agentzcash install-wallet
+  agentzcash install-wallet [--force]
   agentzcash wallet doctor
   agentzcash wallet receive
   agentzcash wallet balance
