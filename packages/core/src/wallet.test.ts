@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   buildExternalCliInvocation,
   parseBalanceOutput,
@@ -10,6 +13,7 @@ import {
   looksLikeShieldedZcashAddress
 } from "./wallet.js";
 import { zecToZats } from "./money.js";
+import { getManagedZingoCliPath } from "./paths.js";
 import type { AgentZcashConfig } from "./types.js";
 
 const purchase = {
@@ -17,6 +21,22 @@ const purchase = {
   amountZats: zecToZats("0.003"),
   memo: "AGENTZCASH:q_123:verified-demo-service"
 };
+
+const originalHome = process.env.AGENTZCASH_HOME;
+const originalZingoCli = process.env.AGENTZCASH_ZINGO_CLI;
+const tempHomes: string[] = [];
+
+afterEach(() => {
+  for (const home of tempHomes.splice(0)) {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+
+  if (originalHome === undefined) delete process.env.AGENTZCASH_HOME;
+  else process.env.AGENTZCASH_HOME = originalHome;
+
+  if (originalZingoCli === undefined) delete process.env.AGENTZCASH_ZINGO_CLI;
+  else process.env.AGENTZCASH_ZINGO_CLI = originalZingoCli;
+});
 
 function makeConfig(overrides: Partial<AgentZcashConfig["agent"]> = {}): AgentZcashConfig {
   return {
@@ -80,6 +100,29 @@ describe("wallet presets", () => {
     expect(resolved.sendCommand).toContain("--data-dir");
     expect(resolved.balanceCommand).toContain("--waitsync balance");
     expect(resolved.txCheckCommand).toContain("zingo-cli");
+  });
+
+  it("resolves zingo-cli preset commands to the managed binary when installed", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "agentzcash-wallet-test-"));
+    tempHomes.push(home);
+    process.env.AGENTZCASH_HOME = home;
+    delete process.env.AGENTZCASH_ZINGO_CLI;
+    fs.mkdirSync(path.dirname(getManagedZingoCliPath()), { recursive: true });
+    fs.writeFileSync(getManagedZingoCliPath(), "");
+
+    const resolved = resolveCliCommands(makeConfig({ walletPreset: "zingo-cli" }));
+
+    expect(resolved.sendCommand).toContain(getManagedZingoCliPath());
+    expect(resolved.balanceCommand).toContain(getManagedZingoCliPath());
+  });
+
+  it("lets AGENTZCASH_ZINGO_CLI override the managed binary", () => {
+    process.env.AGENTZCASH_ZINGO_CLI = "/custom/zingo-cli";
+
+    const resolved = resolveCliCommands(makeConfig({ walletPreset: "zingo-cli" }));
+
+    expect(resolved.sendCommand).toContain("/custom/zingo-cli");
+    expect(resolved.balanceCommand).toContain("/custom/zingo-cli");
   });
 
   it("resolves zallet preset commands", () => {

@@ -1,26 +1,49 @@
 {
-  "files.watcherExclude": {
-    "**/.git/**": true,
+  "files.exclude": {
+    "**/.agentzcash/**": true,
     "**/.next/**": true,
     "**/.turbo/**": true,
     "**/.vercel/**": true,
+    "**/.zecguard/**": true,
     "**/coverage/**": true,
     "**/dist/**": true,
     "**/node_modules/**": true,
-    "**/*.tsbuildinfo": true,
-    ".agentzcash/**": true,
-    ".zecguard/**": true
+    "**/release-artifacts/**": true,
+    "**/*.tsbuildinfo": true
+  },
+  "files.watcherExclude": {
+    "**/.git/**": true,
+    "**/.agentzcash/**": true,
+    "**/.next/**": true,
+    "**/.turbo/**": true,
+    "**/.vercel/**": true,
+    "**/.zecguard/**": true,
+    "**/coverage/**": true,
+    "**/dist/**": true,
+    "**/node_modules/**": true,
+    "**/release-artifacts/**": true,
+    "**/*.tsbuildinfo": true
   },
   "search.exclude": {
-    "**/.next": true,
-    "**/.turbo": true,
-    "**/.vercel": true,
-    "**/coverage": true,
-    "**/dist": true,
-    "**/node_modules": true,
-    ".agentzcash": true,
-    ".zecguard": true
+    "**/.agentzcash/**": true,
+    "**/.next/**": true,
+    "**/.turbo/**": true,
+    "**/.vercel/**": true,
+    "**/.zecguard/**": true,
+    "**/coverage/**": true,
+    "**/dist/**": true,
+    "**/node_modules/**": true,
+    "**/release-artifacts/**": true,
+    "**/*.tsbuildinfo": true
   },
-  "typescript.tsserver.maxTsServerMemory": 3072,
-  "typescript.tsserver.experimental.enableProjectDiagnostics": false
+  "search.followSymlinks": false,
+  "git.autofetch": false,
+  "terminal.integrated.enablePersistentSessions": false,
+  "terminal.integrated.persistentSessionReviveProcess": "never",
+  "typescript.tsserver.maxTsServerMemory": 2048,
+  "typescript.tsserver.experimental.enableProjectDiagnostics": false,
+  "python.analysis.indexing": false,
+  "python.analysis.autoSearchPaths": false,
+  "python.analysis.diagnosticMode": "openFilesOnly",
+  "python.analysis.exclude": ["**/*"]
 }

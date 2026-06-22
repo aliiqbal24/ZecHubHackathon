@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   appendActivity,
   directTransferRequestSchema,
@@ -64,6 +64,7 @@ export async function requestQuote(args: {
   const state = loadState();
   const policy = evaluateQuotePolicy(quote, config, state);
   const now = new Date().toISOString();
+  const approvalToken = createApprovalToken();
 
   const purchase: Purchase = {
     id: `p_${randomUUID()}`,
@@ -86,7 +87,8 @@ export async function requestQuote(args: {
     orderId: order.orderId,
     payTo: order.payTo,
     memo: order.memo,
-    expiresAt: order.expiresAt
+    expiresAt: order.expiresAt,
+    approvalTokenHash: hashApprovalToken(approvalToken)
   };
 
   updateState((draft) => {
@@ -111,7 +113,7 @@ export async function requestQuote(args: {
   return {
     purchaseId: purchase.id,
     status: purchase.status,
-    approvalUrl: `http://localhost:3000/?purchase=${purchase.id}`,
+    approvalUrl: buildApprovalUrl(purchase.id, approvalToken),
     quote,
     order,
     policy
@@ -124,6 +126,7 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
   const state = loadState();
   const policy = evaluateDirectTransferPolicy(request, config, state);
   const now = new Date().toISOString();
+  const approvalToken = createApprovalToken();
   const evidenceSummary = request.evidenceUrls.length
     ? request.evidenceUrls.join(", ")
     : request.agentVerificationNotes || "No external evidence supplied.";
@@ -158,6 +161,7 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
     payTo: request.address,
     memo: request.memo,
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    approvalTokenHash: hashApprovalToken(approvalToken),
     directTransfer: request
   };
 
@@ -183,7 +187,7 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
   return {
     purchaseId: purchase.id,
     status: purchase.status,
-    approvalUrl: `http://localhost:3000/?purchase=${purchase.id}`,
+    approvalUrl: buildApprovalUrl(purchase.id, approvalToken),
     policy,
     transfer: {
       recipientName: request.recipientName,
@@ -194,6 +198,23 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
       evidenceSummary
     }
   };
+}
+
+function createApprovalToken(): string {
+  return randomBytes(32).toString("base64url");
+}
+
+function hashApprovalToken(token: string): string {
+  return createHash("sha256").update(token, "utf8").digest("hex");
+}
+
+function buildApprovalUrl(purchaseId: string, approvalToken?: string): string {
+  const url = new URL("http://localhost:3000/");
+  url.searchParams.set("purchase", purchaseId);
+  if (approvalToken) {
+    url.searchParams.set("approvalToken", approvalToken);
+  }
+  return url.toString();
 }
 
 export async function preparePurchase(args: { purchaseId: string }) {

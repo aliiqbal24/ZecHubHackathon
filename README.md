@@ -25,16 +25,18 @@ npm run build
 npx agentzcash init
 ```
 
-The installer creates or resumes the managed AgentZcash wallet, shows the recovery seed once for backup, requires explicit seed-saved confirmation, writes `~/.agentzcash/agentzcash.config.yaml`, prints the receive address, and starts the dashboard/MCP server unless `--no-start` is passed.
+The installer downloads the managed Zingo CLI wallet dependency when needed, creates or resumes the managed AgentZcash wallet, shows the recovery seed once for backup, requires explicit seed-saved confirmation, writes `~/.agentzcash/agentzcash.config.yaml`, prints the receive address, and starts the dashboard/MCP server unless `--no-start` is passed.
 
 Use `npx agentzcash init --dry-run` to preview setup without creating a wallet.
 
-If Zingo CLI is missing, run:
+To install or replace only the managed wallet dependency:
 
 ```bash
 npx agentzcash install-wallet
 npx agentzcash wallet doctor
 ```
+
+`install-wallet` downloads a prebuilt `zingo-cli` under `~/.agentzcash/zingo-cli` when no existing binary is found. Developer source builds are available with `npx agentzcash install-wallet --build-from-source`.
 
 ## Fund The Agent Wallet
 
@@ -86,6 +88,12 @@ For development hot reload instead of production startup:
 npx agentzcash start --dev
 ```
 
+The dashboard package ships the standalone Next app/server files, but intentionally does not ship `.next/standalone/node_modules`. Runtime dependencies such as Next, React, and platform-native optional packages are installed by npm on the user's computer, which keeps one package portable across Windows, macOS, and Linux.
+
+## Release Artifacts
+
+The release workflow builds managed Zingo CLI binaries with matching `.sha256` files, packs the four AgentZcash npm packages, and can publish them to npm when `NPM_TOKEN` is configured. See [RELEASE.md](RELEASE.md).
+
 ## Agent Connection
 
 This repo includes project-scoped MCP config for both Claude Code (`.mcp.json`) and Codex (`.codex/config.toml`). After `npm install`, start Claude Code or Codex from the repo root and approve/trust the project MCP server when prompted.
@@ -101,6 +109,18 @@ Manual installers:
 ```bash
 npx agentzcash mcp install claude --write
 npx agentzcash mcp install codex --write
+```
+
+These write both the MCP config and the local agent safety instructions:
+
+- Codex: `.codex/config.toml` and `AGENTS.md`
+- Claude Code: `.mcp.json` and `CLAUDE.md`
+
+If MCP is already configured, install only the instructions:
+
+```bash
+npx agentzcash instructions codex --write
+npx agentzcash instructions claude --write
 ```
 
 Available tools:

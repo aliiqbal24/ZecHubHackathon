@@ -1,9 +1,13 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import {
   appendActivity,
   applyDirectTransferConfirmation,
   canApprovePurchase,
   createWalletAdapter,
+  getStatePath,
   loadConfig,
   loadState,
   saveState,
@@ -16,6 +20,14 @@ import {
 } from "@agentzcash/core";
 
 export const dynamic = "force-dynamic";
+
+const APPROVAL_LOCK_STALE_MS = 10 * 60 * 1000;
+
+interface ApprovalRequestBody {
+  profileId?: string;
+  overrideReason?: string;
+  approvalToken?: string;
+}
 
 function selectReleasedPii(purchase: Purchase, profile?: ShippingProfile): Record<string, unknown> | undefined {
   if (purchase.requiredPii.length === 0) return undefined;
@@ -33,16 +45,44 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as {
-    profileId?: string;
-    overrideReason?: string;
-  };
+  const body = (await request.json().catch(() => ({}))) as ApprovalRequestBody;
+  const lock = acquireApprovalLock(id);
+  if (!lock.acquired) {
+    return NextResponse.json({ error: "Payment approval is already being processed." }, { status: 409 });
+  }
+
+  try {
+    return await approveWithLock(request, id, body);
+  } finally {
+    releaseApprovalLock(lock.file);
+  }
+}
+
+async function approveWithLock(request: NextRequest, id: string, body: ApprovalRequestBody) {
   const config = loadConfig();
   const state = loadState();
   const purchase = state.purchases.find((item) => item.id === id);
 
   if (!purchase) {
     return NextResponse.json({ error: "Purchase not found" }, { status: 404 });
+  }
+
+  const requestSafety = validateLocalApprovalRequest(request);
+  if (!requestSafety.ok) {
+    return NextResponse.json({ error: requestSafety.error }, { status: 403 });
+  }
+  if (!validateApprovalToken(purchase.approvalTokenHash, body.approvalToken)) {
+    return NextResponse.json({ error: "Open the AgentZcash approval URL before approving this payment." }, { status: 403 });
+  }
+
+  if (purchase.payment || ["payment_submitted", "pending_confirmation", "receipted"].includes(purchase.status)) {
+    return NextResponse.json({ ok: true, purchase, alreadyProcessed: true });
+  }
+  if (purchase.status === "approved") {
+    return NextResponse.json({ error: "Payment approval is already being processed." }, { status: 409 });
+  }
+  if (purchase.kind === "direct_transfer" && purchase.policy.severity === "blocked") {
+    return NextResponse.json({ error: "Blocked direct transfers cannot be approved." }, { status: 409 });
   }
   if (!canApprovePurchase(purchase) && purchase.status !== "policy_blocked") {
     return NextResponse.json({ error: `Purchase is ${purchase.status}, not approvable` }, { status: 409 });
@@ -63,17 +103,48 @@ export async function POST(
     return NextResponse.json({ error: "Blocked purchases need an override reason" }, { status: 409 });
   }
 
+  const approvalStartedAt = new Date().toISOString();
+  purchase.status = "approved";
+  purchase.approvedAt = approvalStartedAt;
+  purchase.updatedAt = approvalStartedAt;
+  purchase.approvalReason = body.overrideReason;
+  appendActivity(state, {
+    kind: "approval",
+    title: "User approved payment",
+    detail: `${purchase.amountZec} ZEC approved for ${purchase.vendorName}.`,
+    purchaseId: purchase.id
+  });
+  saveState(state);
+
   const adapter = createWalletAdapter(config);
 
   try {
     const liveBalance = await adapter.getBalance();
     if (liveBalance < purchase.amountZats) {
+      purchase.status = "payment_failed";
+      purchase.updatedAt = new Date().toISOString();
+      appendActivity(state, {
+        kind: "payment",
+        title: "Payment failed",
+        detail: `Insufficient wallet balance: ${zatsToZec(liveBalance)} ZEC available, ${purchase.amountZec} ZEC needed.`,
+        purchaseId: purchase.id
+      });
+      saveState(state);
       return NextResponse.json(
         { error: `Insufficient wallet balance: ${zatsToZec(liveBalance)} ZEC available, ${purchase.amountZec} ZEC needed.` },
         { status: 402 }
       );
     }
   } catch (err) {
+    purchase.status = "payment_failed";
+    purchase.updatedAt = new Date().toISOString();
+    appendActivity(state, {
+      kind: "payment",
+      title: "Payment failed",
+      detail: `Could not check wallet balance: ${err instanceof Error ? err.message : String(err)}`,
+      purchaseId: purchase.id
+    });
+    saveState(state);
     return NextResponse.json(
       { error: `Could not check wallet balance: ${err instanceof Error ? err.message : String(err)}` },
       { status: 502 }
@@ -104,17 +175,9 @@ export async function POST(
   const now = new Date().toISOString();
 
   purchase.status = "payment_submitted";
-  purchase.approvedAt = now;
   purchase.updatedAt = now;
-  purchase.approvalReason = body.overrideReason;
   purchase.releasedPii = releasedPii;
   purchase.payment = payment;
-  appendActivity(state, {
-    kind: "approval",
-    title: "User approved payment",
-    detail: `${purchase.amountZec} ZEC approved for ${purchase.vendorName}.`,
-    purchaseId: purchase.id
-  });
   appendActivity(state, {
     kind: "payment",
     title: "Payment submitted",
@@ -240,4 +303,95 @@ export async function POST(
   saveState(updatedState);
 
   return NextResponse.json({ ok: true, purchase: updatedPurchase });
+}
+
+function acquireApprovalLock(purchaseId: string): { acquired: true; file: string } | { acquired: false; file: string } {
+  const dir = path.join(path.dirname(getStatePath()), "locks");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `approval-${safeLockName(purchaseId)}.lock`);
+
+  try {
+    return openApprovalLock(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+      throw error;
+    }
+  }
+
+  if (isStaleApprovalLock(file)) {
+    fs.rmSync(file, { force: true });
+    try {
+      return openApprovalLock(file);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        throw error;
+      }
+    }
+  }
+
+  return { acquired: false, file };
+}
+
+function openApprovalLock(file: string): { acquired: true; file: string } {
+  const fd = fs.openSync(file, "wx");
+  fs.writeFileSync(fd, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
+  fs.closeSync(fd);
+  return { acquired: true, file };
+}
+
+function releaseApprovalLock(file: string): void {
+  fs.rmSync(file, { force: true });
+}
+
+function isStaleApprovalLock(file: string): boolean {
+  try {
+    const stat = fs.statSync(file);
+    return Date.now() - stat.mtimeMs > APPROVAL_LOCK_STALE_MS;
+  } catch {
+    return false;
+  }
+}
+
+function safeLockName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 120) || "unknown";
+}
+
+function validateLocalApprovalRequest(request: NextRequest): { ok: true } | { ok: false; error: string } {
+  const host = request.headers.get("host") ?? request.nextUrl.host;
+  if (!host || !isLocalHost(host)) {
+    return { ok: false, error: "Approval requests must target the local AgentZcash dashboard." };
+  }
+
+  const origin = request.headers.get("origin");
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      if (!isLocalHost(originUrl.host)) {
+        return { ok: false, error: "Cross-site approval requests are blocked." };
+      }
+    } catch {
+      return { ok: false, error: "Invalid approval request origin." };
+    }
+  }
+
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
+    return { ok: false, error: "Cross-site approval requests are blocked." };
+  }
+
+  return { ok: true };
+}
+
+function isLocalHost(host: string): boolean {
+  const hostname = host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0];
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function validateApprovalToken(expectedHash: string | undefined, token: string | undefined): boolean {
+  if (!expectedHash || !token) return false;
+
+  const actualHash = createHash("sha256").update(token, "utf8").digest("hex");
+  const expected = Buffer.from(expectedHash, "hex");
+  const actual = Buffer.from(actualHash, "hex");
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }

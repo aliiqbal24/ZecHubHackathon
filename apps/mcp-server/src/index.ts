@@ -3,9 +3,20 @@ import cors from "cors";
 import { callTool, toolDefinitions } from "./tools.js";
 
 const PORT = Number(process.env.MCP_SERVER_PORT ?? 3010);
+const HOST = process.env.MCP_SERVER_HOST ?? "127.0.0.1";
 const app = express();
 
-app.use(cors());
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || isLocalOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error("AgentZcash MCP HTTP only accepts local origins."));
+  },
+  methods: ["GET", "POST"],
+  allowedHeaders: ["content-type"]
+}));
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_request, response) => {
@@ -33,6 +44,15 @@ app.post("/mcp/call", async (request, response) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`AgentZcash MCP HTTP server listening on http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`AgentZcash MCP HTTP server listening on http://${HOST}:${PORT}`);
 });
+
+function isLocalOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1";
+  } catch {
+    return false;
+  }
+}

@@ -13,6 +13,8 @@
     "dev:mcp": "npm run dev -w @agentzcash/mcp-server",
     "mcp:stdio": "npm --silent run stdio -w @agentzcash/mcp-server",
     "build": "npm run build -w @agentzcash/core && npm run build -w agentzcash && npm run build -w @agentzcash/mcp-server && npm run build -w @agentzcash/dashboard",
+    "release:pack": "node scripts/pack-release.mjs",
+    "release:smoke": "node scripts/smoke-packed-install.mjs",
     "test": "vitest run",
     "test:loop": "vitest run apps/dashboard/src/agent-loop.test.ts",
     "typecheck": "tsc -b packages/core packages/cli apps/mcp-server --pretty false && tsc -p apps/dashboard/tsconfig.json --pretty false"

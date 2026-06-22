@@ -10,17 +10,11 @@ AgentZcash does not let an agent approve or submit payment by itself. The agent 
 - npm
 - Git
 - Codex or Claude Code
-- Zingo CLI available as `zingo-cli` on `PATH`, or `AGENTZCASH_ZINGO_CLI` set to the absolute binary path
 - A shielded-capable Zcash recipient address that starts with `u1`, `utest`, `zs`, or `ztestsapling`
 
 Transparent-only `t1` and `t3` recipient addresses are blocked for direct agent transfers.
 
-Check the wallet dependency before initializing:
-
-```bash
-npx agentzcash install-wallet
-npx agentzcash wallet doctor
-```
+AgentZcash downloads a prebuilt managed Zingo CLI wallet dependency during `init` when one is not already available.
 
 ## 1. Download And Build
 
@@ -58,32 +52,18 @@ During setup, AgentZcash:
 - prints the wallet receive address
 - starts the dashboard and local MCP HTTP server when possible
 
-If Zingo CLI is not found, set the binary path and run init again.
-
-You can print platform-specific setup guidance at any time:
+If you only want to install or replace the wallet dependency without creating a wallet, run:
 
 ```bash
 npx agentzcash install-wallet
 ```
 
-PowerShell:
-
-```powershell
-$env:AGENTZCASH_ZINGO_CLI="C:\absolute\path\to\zingo-cli.exe"
-npx agentzcash init
-```
+Use `npx agentzcash install-wallet --force` to replace the managed binary. Developers can build from source with `npx agentzcash install-wallet --build-from-source`, which requires Rust/Cargo.
 
 Before funding, you can check the managed wallet state:
 
 ```bash
 npx agentzcash wallet doctor
-```
-
-macOS/Linux:
-
-```bash
-export AGENTZCASH_ZINGO_CLI=/absolute/path/to/zingo-cli
-npx agentzcash init
 ```
 
 ## 3. Fund The Agent Wallet
@@ -155,6 +135,15 @@ Included configs:
 
 - Codex: `.codex/config.toml`
 - Claude Code: `.mcp.json`
+
+For an installed package in a different project folder, write both MCP config and the agent payment-safety instructions first:
+
+```bash
+npx agentzcash mcp install codex --write
+npx agentzcash mcp install claude --write
+```
+
+Codex reads the installed AgentZcash rules from `AGENTS.md`; Claude Code reads them from `CLAUDE.md`.
 
 Both configs start MCP through:
 
@@ -235,7 +224,7 @@ For direct transfers, `get_agentzcash_state` refreshes pending confirmation stat
 
 `Zingo CLI binary not found`
 
-Set `AGENTZCASH_ZINGO_CLI` to the absolute Zingo CLI binary path or install `zingo-cli` on `PATH`.
+Run `npx agentzcash init` or `npx agentzcash install-wallet`. AgentZcash downloads a prebuilt managed wallet binary by default. Developers can use `npx agentzcash install-wallet --build-from-source` when they explicitly want a local source build.
 
 `Spendable balance: 0 ZEC`
 
