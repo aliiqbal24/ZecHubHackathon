@@ -95,7 +95,15 @@ jobs:
           mkdir -p artifacts
           ASSET="agentzcash-zingo-cli-${{ matrix.asset_suffix }}${{ matrix.asset_extension }}"
           cp "zingolib/target/release/${{ matrix.executable }}" "artifacts/$ASSET"
-          node -e "const fs=require('fs'); const crypto=require('crypto'); const f='artifacts/$ASSET'; const h=crypto.createHash('sha256').update(fs.readFileSync(f)).digest('hex'); fs.writeFileSync(`${f}.sha256`, `${h}  $ASSET\n`);"
+          ASSET="$ASSET" node <<'NODE'
+          const fs = require("fs");
+          const crypto = require("crypto");
+
+          const asset = process.env.ASSET;
+          const file = `artifacts/${asset}`;
+          const hash = crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+          fs.writeFileSync(`${file}.sha256`, `${hash}  ${asset}\n`);
+          NODE
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
