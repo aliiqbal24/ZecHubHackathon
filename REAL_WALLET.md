@@ -1,17 +1,35 @@
 # Real Wallet Integration
 
-The current prototype defaults to a mock wallet so the full user flow works without local Zcash infrastructure. Real sending is isolated behind the external CLI adapter in `packages/core/src/wallet.ts`.
+AgentZcash uses one managed Zingo CLI wallet by default. Approval cannot submit payment unless the managed wallet exists, is backed up, and has spendable ZEC.
 
-## Configure External CLI Mode
+## Initialize
 
-Edit `zecguard.config.yaml`:
+```bash
+npx agentzcash init
+```
+
+AgentZcash stores wallet data under `~/.agentzcash/wallet` by passing Zingo CLI a dedicated `--data-dir`; it does not use the user's default Zingo wallet directory. The seed phrase is displayed for backup during initialization and is not stored as plaintext by AgentZcash.
+
+If Zingo CLI is not on `PATH`, set:
+
+```bash
+AGENTZCASH_ZINGO_CLI=/absolute/path/to/zingo-cli
+```
+
+## Generated Config
+
+`~/.agentzcash/agentzcash.config.yaml` uses the managed Zingo preset:
 
 ```yaml
 agent:
-  name: Research Buyer
+  name: AgentZcash
   walletMode: external-cli
   walletAddress: u1...
-  externalCliCommand: "zingo-cli send --recipient {to} --value {amount} --memo {memo}"
+  walletPreset: zingo-cli
+
+verification:
+  mode: external-cli
+  minConfirmations: 1
 ```
 
 Placeholders:
@@ -19,33 +37,33 @@ Placeholders:
 - `{to}`: vendor payment address
 - `{amount}`: decimal ZEC amount
 - `{memo}`: ZEC Harness memo
+- `{memoHex}`: UTF-8 memo encoded as hex, for wallet commands that require it
+- `{walletDir}`: AgentZcash managed wallet directory
 
-If no placeholders are present, ZecGuard appends:
+If you override the preset and no send placeholders are present, AgentZcash appends:
 
 ```text
 --to <address> --amount <zec> --memo <memo>
 ```
 
-The CLI command must print a transaction id as the last whitespace-separated token on stdout.
+The send command must print a transaction id as the last whitespace-separated token on stdout.
 
 ## Vendor Payment Detection
 
-The demo vendor verifies payments by scanning the local mock payment ledger. A real vendor should replace that with one of:
+`verification.externalCliCommand` must return received transactions that include the ZEC Harness memo, amount, transaction id, and confirmations. A production vendor can also use a `lightwalletd` watcher when `verification.mode: lightwalletd` is configured.
 
-- Wallet/viewing-key monitoring for incoming shielded payments.
-- A lightwalletd-backed watcher.
-- A payment processor that can confirm the exact address, amount, and memo.
+The invariant is: fulfill only after the vendor has verified the exact quote amount, payment address, memo, and order correlation.
 
-The production invariant is the same as the mock invariant: fulfill only after the vendor has verified the exact quote amount, payment address, memo, and order correlation.
+## Local Prerequisites
 
-## Current Blockers On This Machine
+Fund the receive address printed by `agentzcash init` or `agentzcash wallet receive`.
 
-These tools are not installed in the current environment:
+Check spendable balance:
 
-- `zcashd`
-- `zcash-cli`
-- `zebrad`
-- `zingo-cli`
-- `zallet`
+```bash
+agentzcash wallet balance
+```
 
-Because of that, the prototype cannot submit a real mainnet shielded transaction here yet. The app is ready for that integration once one wallet backend is installed and funded.
+If balance refresh fails, AgentZcash displays `0 ZEC` until a live wallet balance is available.
+
+Direct agent transfers require a shielded-capable recipient address (`u1`, `utest`, `zs`, or `ztestsapling`). Transparent-only `t1` and `t3` direct-transfer recipients are blocked by policy.

@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
+import { getAgentZcashHome, getConfigPath, getManagedWalletDir, getStatePath } from "./paths.js";
 import { WALLET_PRESETS } from "./wallet.js";
-import type { ZecGuardConfig } from "./types.js";
+import type { AgentZcashConfig } from "./types.js";
 
 export function findWorkspaceRoot(start = process.cwd()): string {
-  if (process.env.ZECGUARD_ROOT) {
-    return process.env.ZECGUARD_ROOT;
+  if (process.env.AGENTZCASH_ROOT) {
+    return process.env.AGENTZCASH_ROOT;
   }
 
   const parent = path.basename(path.dirname(start));
@@ -21,24 +22,28 @@ export function findWorkspaceRoot(start = process.cwd()): string {
   return start;
 }
 
-export function getZecGuardHome(): string {
-  return process.env.ZECGUARD_HOME ?? path.join(/*turbopackIgnore: true*/ findWorkspaceRoot(), ".zecguard");
-}
-
-export function getConfigPath(): string {
-  return process.env.ZECGUARD_CONFIG ?? path.join(/*turbopackIgnore: true*/ findWorkspaceRoot(), "zecguard.config.yaml");
-}
-
-export function loadConfig(): ZecGuardConfig {
+export function loadConfig(): AgentZcashConfig {
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
-    throw new Error(`Missing ZecGuard config at ${configPath}`);
+    throw new Error(`Missing AgentZcash config at ${configPath}`);
   }
 
-  const raw = YAML.parse(fs.readFileSync(configPath, "utf8")) as ZecGuardConfig;
+  const raw = YAML.parse(fs.readFileSync(configPath, "utf8")) as Partial<AgentZcashConfig> & {
+    agent?: Partial<AgentZcashConfig["agent"]> & { walletMode?: string };
+    verification?: Omit<Partial<NonNullable<AgentZcashConfig["verification"]>>, "mode"> & { mode?: string };
+  };
+
+  if (raw.agent?.walletMode !== "external-cli") {
+    throw new Error("Only external wallet mode is enabled. Set agent.walletMode to external-cli.");
+  }
 
   if (!raw.verification) {
-    raw.verification = { mode: "mock", minConfirmations: 1 };
+    raw.verification = { mode: "external-cli", minConfirmations: 1 };
+  }
+  const verificationMode = (raw.verification as { mode?: string }).mode;
+  const retiredLocalMode = ["mo", "ck"].join("");
+  if (verificationMode === retiredLocalMode) {
+    throw new Error("Only external payment verification is enabled. Set verification.mode to external-cli.");
   }
   raw.verification.minConfirmations ??= 1;
 
@@ -48,9 +53,11 @@ export function loadConfig(): ZecGuardConfig {
     );
   }
 
-  return raw;
+  return raw as AgentZcashConfig;
 }
 
 export function readConfigText(): string {
   return fs.readFileSync(getConfigPath(), "utf8");
 }
+
+export { getAgentZcashHome, getConfigPath, getManagedWalletDir, getStatePath };

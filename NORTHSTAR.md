@@ -1,4 +1,4 @@
-# ZecGuard Northstar
+# AgentZcash Northstar
 
 ## Mission
 
@@ -10,7 +10,7 @@ The final state of this project is an approval-gated Zcash spending layer for AI
 
 The agent should then research the recipient, find the correct Zcash payment address, explain how it verified that address, prepare the exact transaction, and ask the user for confirmation before any ZEC leaves the wallet.
 
-ZecGuard exists to make private Zcash payments usable by agents without giving agents unchecked custody or blind payment authority.
+AgentZcash exists to make private Zcash payments usable by agents without giving agents unchecked custody or blind payment authority.
 
 ## Product Promise
 
@@ -51,7 +51,7 @@ The core invariant is simple:
    - Selects the best verified address.
    - Prepares the transaction amount and memo.
 
-3. ZecGuard checks policy.
+3. AgentZcash checks policy.
    - Per-transaction limit.
    - Daily and monthly budget.
    - Trusted or unknown recipient status.
@@ -72,7 +72,7 @@ The core invariant is simple:
    - Approval sends through the configured local Zcash wallet.
    - Rejection cancels the queued spend.
 
-6. ZecGuard stores the result.
+6. AgentZcash stores the result.
    - Transaction id.
    - Payment status.
    - Confirmation status when available.
@@ -89,11 +89,11 @@ Zcash has strong privacy properties, but private money still needs usable contro
 - Compatible with human approval.
 - Auditable locally without publishing unnecessary personal data.
 
-ZecGuard should make Zcash feel like the natural payment rail for autonomous and semi-autonomous agents.
+AgentZcash should make Zcash feel like the natural payment rail for autonomous and semi-autonomous agents.
 
 ## Architecture Direction
 
-ZecGuard should be built around five boundaries.
+AgentZcash should be built around five boundaries.
 
 ### 1. Agent Interface
 
@@ -125,7 +125,7 @@ Every proposed spend must pass through local policy:
 - Required human approval.
 - Optional one-time override with reason.
 
-Policy should be readable and editable in `zecguard.config.yaml`.
+Policy should be readable and editable in `agentzcash.config.yaml`.
 
 ### 4. Wallet Adapter
 
@@ -135,7 +135,7 @@ Real sending belongs behind a wallet adapter. The current production direction i
 - `zallet`
 - `zcash-cli` or compatible tooling
 
-ZecGuard should never require an agent to handle wallet secrets directly. The wallet stays local; the agent gets only preparation and state tools.
+AgentZcash should never require an agent to handle wallet secrets directly. The wallet stays local; the agent gets only preparation and state tools.
 
 ### 5. Approval Dashboard
 
@@ -155,7 +155,7 @@ The dashboard is the user's control room. It should make the approval decision o
 - No hidden recipient changes.
 - No approval by prompt injection.
 - No payment to addresses without visible evidence.
-- No fake confidence when address evidence is weak.
+- No unsupported confidence when address evidence is weak.
 - No custody inside the language model.
 - No personal data release without explicit user approval.
 - No irreversible action without a clear final confirmation.
@@ -219,7 +219,7 @@ Make it easy for a user to install and connect:
 
 ## Success Criteria
 
-ZecGuard is succeeding when a user can safely say:
+AgentZcash is succeeding when a user can safely say:
 
 > Send 0.01 ZEC to this institution if you can verify their wallet address.
 
@@ -238,4 +238,4 @@ The user should feel that the agent is useful, but never in control of the funds
 
 ## Northstar Sentence
 
-**ZecGuard lets AI agents intelligently prepare private Zcash payments while keeping final spending authority with the human user.**
+**AgentZcash lets AI agents intelligently prepare private Zcash payments while keeping final spending authority with the human user.**

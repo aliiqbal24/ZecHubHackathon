@@ -1,5 +1,14 @@
 import { zecToZats } from "./money.js";
-import type { PolicyCheck, PolicyResult, Purchase, QuoteResponse, ZecGuardConfig, ZecGuardState } from "./types.js";
+import type {
+  DirectTransferRequest,
+  PolicyCheck,
+  PolicyResult,
+  Purchase,
+  QuoteResponse,
+  AgentZcashConfig,
+  AgentZcashState
+} from "./types.js";
+import { looksLikeShieldedZcashAddress } from "./wallet.js";
 
 function mostSevere(checks: PolicyCheck[]): PolicyResult["severity"] {
   if (checks.some((check) => check.severity === "blocked")) return "blocked";
@@ -9,8 +18,8 @@ function mostSevere(checks: PolicyCheck[]): PolicyResult["severity"] {
 
 export function evaluateQuotePolicy(
   quote: QuoteResponse,
-  config: ZecGuardConfig,
-  state: ZecGuardState
+  config: AgentZcashConfig,
+  state: AgentZcashState
 ): PolicyResult {
   const amountZats = zecToZats(quote.amountZec);
   const perTxLimit = zecToZats(config.spending.perTransactionZec);
@@ -157,28 +166,16 @@ export function evaluateQuotePolicy(
   };
 }
 
-export interface GenericPaymentPolicyInput {
-  amountZec: string;
-  payTo: string;
-  memo: string;
-  expiresAt: string;
-  recipientLabel?: string;
-}
-
-export function evaluateGenericPaymentPolicy(
-  payment: GenericPaymentPolicyInput,
-  config: ZecGuardConfig,
-  state: ZecGuardState
+export function evaluateDirectTransferPolicy(
+  request: DirectTransferRequest,
+  config: AgentZcashConfig,
+  state: AgentZcashState
 ): PolicyResult {
-  const amountZats = zecToZats(payment.amountZec);
+  const amountZats = zecToZats(request.amountZec);
   const perTxLimit = zecToZats(config.spending.perTransactionZec);
   const dailyLimit = zecToZats(config.spending.dailyZec);
   const monthlyLimit = zecToZats(config.spending.monthlyZec);
-  const expiresAt = new Date(payment.expiresAt).getTime();
-  const memoBytes = Buffer.byteLength(payment.memo, "utf8");
-  const memoLooksSensitive =
-    /[^\s@]+@[^\s@]+\.[^\s@]+/.test(payment.memo) ||
-    /\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b/.test(payment.memo);
+  const memoBytes = Buffer.byteLength(request.memo, "utf8");
 
   const checks: PolicyCheck[] = [
     amountZats > 0
@@ -186,132 +183,116 @@ export function evaluateGenericPaymentPolicy(
           id: "amount-positive",
           label: "Amount",
           severity: "pass",
-          detail: "Payment amount is positive."
+          detail: "Transfer amount is positive."
         }
       : {
           id: "amount-positive",
           label: "Amount",
           severity: "blocked",
-          detail: "Payment amount must be greater than zero."
+          detail: "Transfer amount must be greater than zero."
         },
     amountZats <= perTxLimit
       ? {
           id: "per-transaction",
           label: "Per-transaction limit",
           severity: "pass",
-          detail: `${payment.amountZec} ZEC is within the ${config.spending.perTransactionZec} ZEC limit.`
+          detail: `${request.amountZec} ZEC is within the ${config.spending.perTransactionZec} ZEC limit.`
         }
       : {
           id: "per-transaction",
           label: "Per-transaction limit",
           severity: "blocked",
-          detail: `${payment.amountZec} ZEC exceeds the ${config.spending.perTransactionZec} ZEC limit.`
+          detail: `${request.amountZec} ZEC exceeds the ${config.spending.perTransactionZec} ZEC limit.`
         },
     state.wallet.spentTodayZats + amountZats <= dailyLimit
       ? {
           id: "daily",
           label: "Daily budget",
           severity: "pass",
-          detail: "This payment fits today's budget."
+          detail: "This transfer fits today's budget."
         }
       : {
           id: "daily",
           label: "Daily budget",
           severity: "blocked",
-          detail: "This payment would exceed today's agent budget."
+          detail: "This transfer would exceed today's agent budget."
         },
     state.wallet.spentMonthZats + amountZats <= monthlyLimit
       ? {
           id: "monthly",
           label: "Monthly budget",
           severity: "pass",
-          detail: "This payment fits the monthly budget."
+          detail: "This transfer fits the monthly budget."
         }
       : {
           id: "monthly",
           label: "Monthly budget",
           severity: "blocked",
-          detail: "This payment would exceed the monthly agent budget."
+          detail: "This transfer would exceed the monthly agent budget."
         },
-    Number.isFinite(expiresAt) && expiresAt > Date.now()
+    looksLikeShieldedZcashAddress(request.address)
       ? {
-          id: "expiry",
-          label: "Payment expiry",
+          id: "address",
+          label: "Recipient address",
           severity: "pass",
-          detail: "Payment approval request has not expired."
+          detail: "Recipient supplied a shielded-capable Zcash address."
         }
       : {
-          id: "expiry",
-          label: "Payment expiry",
+          id: "address",
+          label: "Recipient address",
           severity: "blocked",
-          detail: "Payment approval request is expired or has an invalid expiry."
+          detail: "Recipient address must be a shielded-capable Zcash address."
         },
     memoBytes <= 512
       ? {
-          id: "memo-size",
-          label: "Memo size",
+          id: "memo",
+          label: "Memo safety",
           severity: "pass",
           detail: "Memo fits shielded memo size."
         }
       : {
-          id: "memo-size",
-          label: "Memo size",
+          id: "memo",
+          label: "Memo safety",
           severity: "blocked",
-          detail: "Memo must fit 512 bytes."
+          detail: "Memo must fit the 512 byte shielded memo limit."
         },
-    memoLooksSensitive
+    request.purpose.trim().length > 0
       ? {
-          id: "memo-pii",
-          label: "Memo privacy",
+          id: "purpose",
+          label: "Purpose",
+          severity: "pass",
+          detail: "Transfer includes a purpose for user review."
+        }
+      : {
+          id: "purpose",
+          label: "Purpose",
           severity: "warn",
-          detail: "Memo appears to contain contact information. Review before approval."
-        }
-      : {
-          id: "memo-pii",
-          label: "Memo privacy",
-          severity: "pass",
-          detail: "Memo does not look like it contains common contact PII."
+          detail: "No purpose was provided."
         },
-    payment.payTo.length >= 20
+    request.evidenceUrls.length > 0 || request.agentVerificationNotes.trim().length > 0
       ? {
-          id: "address",
-          label: "Payment address",
+          id: "evidence",
+          label: "Evidence",
           severity: "pass",
-          detail: "Recipient supplied a payment address."
+          detail: "Agent supplied evidence or verification notes."
         }
       : {
-          id: "address",
-          label: "Payment address",
-          severity: "blocked",
-          detail: "Recipient payment address is missing or malformed."
+          id: "evidence",
+          label: "Evidence",
+          severity: "warn",
+          detail: "No source evidence or verification notes were provided."
         },
-    {
-      id: "recipient",
-      label: "Recipient trust",
-      severity: "warn",
-      detail: payment.recipientLabel
-        ? `Generic ZEC recipient "${payment.recipientLabel}" is not a ZEC Harness vendor.`
-        : "Generic ZEC recipient is not a ZEC Harness vendor."
-    },
-    {
-      id: "fulfillment",
-      label: "Fulfillment",
-      severity: "warn",
-      detail: "Generic ZEC payments only produce a local receipt unless the recipient exposes a verification API."
-    },
     {
       id: "approval",
       label: "Human approval",
       severity: "pass",
-      detail: config.approval.requireEveryPayment
-        ? "Final user confirmation is required before payment."
-        : "Autonomous payment is allowed by policy."
+      detail: "Final user confirmation is required before payment."
     }
   ];
 
   return {
     severity: mostSevere(checks),
-    requiresApproval: config.approval.requireEveryPayment || checks.some((check) => check.severity !== "pass"),
+    requiresApproval: true,
     checks
   };
 }

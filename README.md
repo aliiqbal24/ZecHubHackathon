@@ -1,22 +1,57 @@
-# ZecGuard
+# AgentZcash
 
-ZecGuard is a local prototype for private, policy-governed AI agent purchases over Zcash. An agent can request a purchase from a vendor that exposes a ZEC Harness, or prepare a generic ZIP-321/raw ZEC payment like a wallet send. ZecGuard checks policy, shows the exact spend and conditions, requires human approval, sends payment through a wallet adapter, and stores either a signed vendor receipt or a local payment receipt.
+AgentZcash is a local approval and wallet-control layer for private, policy-governed AI agent ZEC payments. An agent can queue a direct transfer or request a purchase from a vendor that exposes a ZEC Harness, while AgentZcash checks policy, shows the exact spend and conditions, requires human approval, sends payment through the managed local Zingo wallet, and stores a receipt.
 
 ## What Is Implemented
 
 - Local web dashboard at `http://localhost:3000`
 - MCP-capable agent server with HTTP tools on `http://localhost:3010`
-- Reference ZEC Harness vendor on `http://localhost:3020`
-- Generic ZEC payment preparation from ZIP-321 URIs or raw address/amount/memo inputs
-- Shared TypeScript protocol, policy engine, state machine, mock wallet, and receipt signing
-- Natural-language purchase request flow
-- Digital-service and physical-goods demo purchases
-- Approval-gated PII release for physical orders
+- Shared TypeScript protocol, policy engine, state machine, external wallet adapter, and receipt verification
 - YAML spending policy with per-transaction, daily, and monthly limits
-- Mock wallet path for smooth demos and an external CLI wallet adapter boundary for real Zcash tooling
-- Mock payment ledger so the vendor verifies a recorded payment instead of trusting a callback payload
+- `agentzcash` CLI package for `npx agentzcash init`
+- One managed Zingo CLI wallet under `~/.agentzcash/wallet`
+- Direct ZEC transfer approvals through `prepare_direct_transfer`
+- Vendor-side payment verification through `external-cli` or `lightwalletd`
 
-## Run It
+## Download-And-Run Setup
+
+For the full fresh-computer path, see [QUICKSTART.md](QUICKSTART.md).
+
+```bash
+git clone <repo-url>
+cd AgentZcash
+npm install
+npm run build
+npx agentzcash init
+```
+
+The installer creates or resumes the managed AgentZcash wallet, shows the recovery seed once for backup, requires explicit seed-saved confirmation, writes `~/.agentzcash/agentzcash.config.yaml`, prints the receive address, and starts the dashboard/MCP server unless `--no-start` is passed.
+
+Use `npx agentzcash init --dry-run` to preview setup without creating a wallet.
+
+## Fund The Agent Wallet
+
+```bash
+npx agentzcash wallet receive
+```
+
+Send ZEC to the printed address from an external wallet or exchange, then verify the managed wallet can see the funds:
+
+```bash
+npx agentzcash wallet balance
+```
+
+AgentZcash will not approve a spend unless the local wallet reports enough live balance.
+
+Check whether this computer is ready for the full agent loop:
+
+```bash
+npx agentzcash doctor --loop
+```
+
+The loop doctor checks wallet readiness, project MCP config, build outputs, the MCP tool surface, and a no-funds direct-transfer prepare smoke test. It does not approve or submit a payment.
+
+## Workspace Development
 
 ```bash
 npm install
@@ -29,88 +64,58 @@ Then open:
 http://localhost:3000
 ```
 
-Reset local demo state:
-
-```bash
-npm run demo:reset
-```
-
-Verify the browser flow:
-
-```bash
-npm run demo:verify
-```
-
-## Demo Flow
-
-1. Enter a natural-language request in the dashboard.
-2. Click **Request quote**.
-3. The MCP server asks the demo vendor for a ZEC quote and reserves an order.
-4. ZecGuard checks the local YAML policy.
-5. Approve or reject the pending payment.
-6. On approval, the mock wallet submits a ZEC payment record into the local payment ledger.
-7. The vendor scans for a matching amount, address, memo, vendor, and order before returning fulfillment.
-8. ZecGuard stores the signed private receipt.
+The dashboard is an approval and wallet status console. Purchases are created through MCP tool calls from an agent or client.
 
 ## Agent Connection
 
-For MCP stdio clients, use:
+This repo includes project-scoped MCP config for both Claude Code (`.mcp.json`) and Codex (`.codex/config.toml`). After `npm install`, start Claude Code or Codex from the repo root and approve/trust the project MCP server when prompted.
+
+Manual MCP stdio command:
 
 ```bash
-npm run mcp:stdio
+npm --silent run mcp:stdio
+```
+
+Manual installers:
+
+```bash
+npx agentzcash mcp install claude --write
+npx agentzcash mcp install codex --write
 ```
 
 Available tools:
 
 - `discover_zec_vendor`
 - `request_quote`
-- `prepare_zec_payment`
-- `review_purchase`
-- `approve_and_pay_purchase`
+- `prepare_purchase`
+- `prepare_direct_transfer`
 - `claim_fulfillment`
-- `get_zecguard_state`
+- `get_agentzcash_state`
 
-`approve_and_pay_purchase` is marked destructive, non-idempotent, and open-world in MCP metadata. Agents should call it only after explicit user approval; MCP clients should keep their permission prompt enabled for that tool. Dashboard approval remains available as the safer fallback.
+The dashboard approval endpoint is intentionally not exposed as an autonomous MCP tool. Agents can prepare payment intents; humans approve payments.
 
-## Payment Tiers
+## Shielded Agentic Transfer Loop
 
-Tier 1 ZEC Harness vendors support quote, order reservation, policy review, payment submission, vendor verification, fulfillment, and signed private receipts.
+1. User runs `npx agentzcash init`, backs up the seed, and funds the printed wallet address.
+2. User starts Codex or Claude Code from the repo root with AgentZcash MCP enabled.
+3. Agent calls `prepare_direct_transfer` with a shielded-capable recipient address (`u1`, `utest`, `zs`, or `ztestsapling`), amount, memo, purpose, and verification evidence.
+4. Agent returns the dashboard approval URL.
+5. User reviews the dashboard and approves or rejects the payment.
+6. Agent calls `get_agentzcash_state` to check whether the submitted transaction is still `pending_confirmation` or has reached the configured confirmation count and become `receipted`.
 
-Tier 2 generic ZEC payments support "pay this ZEC address/payment URI" flows. ZecGuard can parse a ZIP-321 URI or raw address/amount/memo, run spending and memo policy checks, submit payment after approval, and store a local receipt. Automatic fulfillment is not available unless the recipient exposes a compatible verification API.
+To verify this loop without real funds or a live wallet, run:
 
-## ZEC Harness Vendor Contract
+```bash
+npm run test:loop
+```
 
-A compatible vendor exposes:
-
-- `/.well-known/zec-harness.json`
-- `POST /quote`
-- `POST /orders`
-- `GET /orders/:id`
-- `POST /orders/:id/verify`
-
-The demo vendor verifies against the local mock payment ledger. In a production Zcash integration, the vendor would verify shielded payment through wallet/lightwallet infrastructure rather than accepting the mock ledger.
-
-Protocol details are in `ZEC_HARNESS.md`.
-
-## Real Wallet Boundary
-
-The mock wallet is the default because it keeps the prototype reliable without local Zcash node setup. The real-payment seam is `ExternalCliWalletAdapter` in `packages/core/src/wallet.ts`; configure `agent.walletMode: external-cli` and `agent.externalCliCommand` in `zecguard.config.yaml` to route sends through a local wallet command.
-
-Real wallet details are in `REAL_WALLET.md`.
-
-## Docs
-
-- `NORTHSTAR.md`: mission, product promise, safety principles, and milestones
-- `ZEC_HARNESS.md`: vendor protocol
-- `AGENT_SETUP.md`: MCP and agent setup
-- `REAL_WALLET.md`: external wallet adapter
-- `HACKATHON_SUBMISSION.md`: demo narrative and judging notes
+That smoke test uses an isolated temp AgentZcash home and a fake external wallet command. It proves the MCP direct-transfer tool can create an approval request and the dashboard approval route stores a local direct-transfer receipt.
 
 ## Verify
 
 ```bash
 npm test
+npm run test:loop
 npm run typecheck
 npm run build
-npm run demo:verify
 ```

@@ -1,16 +1,15 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { randomUUID } from "node:crypto";
+import { getManagedWalletDir } from "./paths.js";
 import { zatsToZec, zecToZats } from "./money.js";
-import { loadState } from "./state.js";
 import type {
   PaymentRecord,
   Purchase,
   TransactionInfo,
   WalletPreset,
   WalletPresetName,
-  ZecGuardConfig,
-  ZecGuardState
+  AgentZcashConfig,
+  AgentZcashState
 } from "./types.js";
 
 const execFileAsync = promisify(execFile);
@@ -26,9 +25,9 @@ export const WALLET_PRESETS: Record<WalletPresetName, WalletPreset> = {
   "zingo-cli": {
     name: "zingo-cli",
     label: "Zingo CLI",
-    sendCommandTemplate: "zingo-cli send '[{\"address\":\"{to}\",\"amount\":{amount},\"memo\":\"{memo}\"}]'",
-    balanceCommand: "zingo-cli balance",
-    transactionCheckCommandTemplate: "zingo-cli notes"
+    sendCommandTemplate: "zingo-cli --data-dir \"{walletDir}\" send '[{\"address\":\"{to}\",\"amount\":{amount},\"memo\":\"{memo}\"}]'",
+    balanceCommand: "zingo-cli --data-dir \"{walletDir}\" --waitsync balance",
+    transactionCheckCommandTemplate: "zingo-cli --data-dir \"{walletDir}\" notes"
   },
   zallet: {
     name: "zallet",
@@ -40,44 +39,18 @@ export const WALLET_PRESETS: Record<WalletPresetName, WalletPreset> = {
 };
 
 export interface WalletAdapter {
-  sendPayment(purchase: Purchase, state: ZecGuardState, config: ZecGuardConfig): Promise<PaymentRecord>;
+  sendPayment(purchase: Purchase, state: AgentZcashState, config: AgentZcashConfig): Promise<PaymentRecord>;
   getBalance(): Promise<number>;
   checkTransaction(txId: string): Promise<TransactionInfo>;
 }
 
-export class MockWalletAdapter implements WalletAdapter {
-  async sendPayment(purchase: Purchase, state: ZecGuardState, config: ZecGuardConfig): Promise<PaymentRecord> {
-    if (state.wallet.balanceZats < purchase.amountZats) {
-      throw new Error("Mock wallet balance is too low for this purchase.");
-    }
-
-    return {
-      txId: `mock-zec-${randomUUID()}`,
-      amountZec: purchase.amountZec,
-      amountZats: purchase.amountZats,
-      payTo: purchase.payTo,
-      memo: purchase.memo,
-      submittedAt: new Date().toISOString(),
-      walletMode: config.agent.walletMode
-    };
-  }
-
-  async getBalance(): Promise<number> {
-    return loadState().wallet.balanceZats;
-  }
-
-  async checkTransaction(txId: string): Promise<TransactionInfo> {
-    return { txId, status: "confirmed", confirmations: 100 };
-  }
-}
-
 export class ExternalCliWalletAdapter implements WalletAdapter {
-  constructor(private readonly config: ZecGuardConfig) {}
+  constructor(private readonly config: AgentZcashConfig) {}
 
-  async sendPayment(purchase: Purchase, _state: ZecGuardState, _config: ZecGuardConfig): Promise<PaymentRecord> {
+  async sendPayment(purchase: Purchase, _state: AgentZcashState, _config: AgentZcashConfig): Promise<PaymentRecord> {
     const resolved = resolveCliCommands(this.config);
     if (!resolved.sendCommand) {
-      throw new Error("No send command configured. Set agent.externalCliCommand or agent.walletPreset in zecguard.config.yaml.");
+      throw new Error("No send command configured. Set agent.externalCliCommand or agent.walletPreset in agentzcash.config.yaml.");
     }
 
     const { command, args } = buildExternalCliInvocation(resolved.sendCommand, purchase);
@@ -109,7 +82,7 @@ export class ExternalCliWalletAdapter implements WalletAdapter {
   async getBalance(): Promise<number> {
     const resolved = resolveCliCommands(this.config);
     if (!resolved.balanceCommand) {
-      throw new Error("No balance command configured. Set agent.externalCliBalanceCommand or agent.walletPreset in zecguard.config.yaml.");
+      throw new Error("No balance command configured. Set agent.externalCliBalanceCommand or agent.walletPreset in agentzcash.config.yaml.");
     }
 
     const tokens = tokenizeCommand(resolved.balanceCommand);
@@ -147,17 +120,21 @@ export class ExternalCliWalletAdapter implements WalletAdapter {
   }
 }
 
-export function resolveCliCommands(config: ZecGuardConfig): {
+export function resolveCliCommands(config: AgentZcashConfig): {
   sendCommand: string | undefined;
   balanceCommand: string | undefined;
   txCheckCommand: string | undefined;
 } {
   const preset = config.agent.walletPreset ? WALLET_PRESETS[config.agent.walletPreset] : undefined;
   return {
-    sendCommand: config.agent.externalCliCommand ?? preset?.sendCommandTemplate,
-    balanceCommand: config.agent.externalCliBalanceCommand ?? preset?.balanceCommand,
-    txCheckCommand: config.agent.externalCliTxCheckCommand ?? preset?.transactionCheckCommandTemplate
+    sendCommand: expandWalletTemplate(config.agent.externalCliCommand ?? preset?.sendCommandTemplate),
+    balanceCommand: expandWalletTemplate(config.agent.externalCliBalanceCommand ?? preset?.balanceCommand),
+    txCheckCommand: expandWalletTemplate(config.agent.externalCliTxCheckCommand ?? preset?.transactionCheckCommandTemplate)
   };
+}
+
+function expandWalletTemplate(value: string | undefined): string | undefined {
+  return value?.replaceAll("{walletDir}", getManagedWalletDir());
 }
 
 export function parseCliError(err: unknown, command: string): Error {
@@ -323,9 +300,46 @@ function tokenizeCommand(command: string): string[] {
   return tokens;
 }
 
-export function createWalletAdapter(config: ZecGuardConfig): WalletAdapter {
+export function createWalletAdapter(config: AgentZcashConfig): WalletAdapter {
   if (config.agent.walletMode === "external-cli") {
     return new ExternalCliWalletAdapter(config);
   }
-  return new MockWalletAdapter();
+  throw new Error("Only external wallet mode is enabled. Configure agent.walletMode: external-cli.");
+}
+
+export function parseReceiveAddressOutput(stdout: string): string {
+  const trimmed = stdout.trim();
+  if (!trimmed) {
+    throw new Error("Wallet returned no address output.");
+  }
+
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      const candidates = Array.isArray(parsed) ? parsed : Object.values(parsed);
+      for (const candidate of candidates) {
+        if (typeof candidate === "string" && looksLikeZcashAddress(candidate)) return candidate;
+        if (candidate && typeof candidate === "object") {
+          for (const value of Object.values(candidate)) {
+            if (typeof value === "string" && looksLikeZcashAddress(value)) return value;
+          }
+        }
+      }
+    } catch {
+      // Fall through to text parsing.
+    }
+  }
+
+  const match = trimmed.match(/\b(u1|zs|ztestsapling|t1|t3)[a-zA-Z0-9]{20,}\b/);
+  if (match?.[0]) return match[0];
+
+  throw new Error(`Cannot parse wallet receive address from output: ${trimmed.slice(0, 200)}`);
+}
+
+export function looksLikeZcashAddress(address: string): boolean {
+  return /^(u1|utest|zs|ztestsapling|t1|t3)[a-zA-Z0-9]{20,}$/.test(address);
+}
+
+export function looksLikeShieldedZcashAddress(address: string): boolean {
+  return /^(u1|utest|zs|ztestsapling)[a-zA-Z0-9]{20,}$/.test(address);
 }

@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_request, response) => {
-  response.json({ ok: true, service: "zecguard-mcp-server" });
+  response.json({ ok: true, service: "agentzcash-mcp-server" });
 });
 
 app.get("/mcp/tools", (_request, response) => {
@@ -34,5 +34,5 @@ app.post("/mcp/call", async (request, response) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`ZecGuard MCP HTTP server listening on http://localhost:${PORT}`);
+  console.log(`AgentZcash MCP HTTP server listening on http://localhost:${PORT}`);
 });

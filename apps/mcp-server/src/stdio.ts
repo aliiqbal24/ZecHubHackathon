@@ -4,7 +4,7 @@ import { z } from "zod";
 import { callTool } from "./tools.js";
 
 const server = new McpServer({
-  name: "zecguard",
+  name: "agentzcash",
   version: "0.1.0"
 });
 
@@ -60,61 +60,21 @@ server.registerTool(
 );
 
 server.registerTool(
-  "prepare_zec_payment",
+  "prepare_direct_transfer",
   {
-    title: "Prepare Generic ZEC Payment",
-    description: "Prepare a generic ZEC payment from a ZIP-321 URI or raw address, amount, and memo.",
-    annotations: {
-      readOnlyHint: false,
-      idempotentHint: false
-    },
+    title: "Prepare Direct Transfer",
+    description: "Queue a direct ZEC transfer for dashboard approval. This tool cannot approve or send payment.",
     inputSchema: {
-      paymentUri: z.string().optional(),
-      address: z.string().optional(),
-      amountZec: z.string().optional(),
+      recipientName: z.string(),
+      amountZec: z.string(),
+      address: z.string(),
       memo: z.string().optional(),
-      recipientLabel: z.string().optional(),
-      expiresAt: z.string().optional()
+      purpose: z.string().optional(),
+      evidenceUrls: z.array(z.string().url()).optional(),
+      agentVerificationNotes: z.string().optional()
     }
   },
-  async ({ paymentUri, address, amountZec, memo, recipientLabel, expiresAt }) =>
-    textResult(await callTool("prepare_zec_payment", { paymentUri, address, amountZec, memo, recipientLabel, expiresAt }))
-);
-
-server.registerTool(
-  "review_purchase",
-  {
-    title: "Review Purchase",
-    description: "Review exact amount, recipient, memo, policy checks, privacy/PII, expiry, and approval wording.",
-    annotations: {
-      readOnlyHint: false
-    },
-    inputSchema: {
-      purchaseId: z.string()
-    }
-  },
-  async ({ purchaseId }) => textResult(await callTool("review_purchase", { purchaseId }))
-);
-
-server.registerTool(
-  "approve_and_pay_purchase",
-  {
-    title: "Approve And Pay Purchase",
-    description: "Submit the ZEC payment after explicit user approval. Destructive, non-idempotent, and open-world.",
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: false,
-      openWorldHint: true
-    },
-    inputSchema: {
-      purchaseId: z.string(),
-      overrideReason: z.string().optional(),
-      profileId: z.string().optional()
-    }
-  },
-  async ({ purchaseId, overrideReason, profileId }) =>
-    textResult(await callTool("approve_and_pay_purchase", { purchaseId, overrideReason, profileId }))
+  async (args) => textResult(await callTool("prepare_direct_transfer", args))
 );
 
 server.registerTool(
@@ -134,16 +94,16 @@ server.registerTool(
 );
 
 server.registerTool(
-  "get_zecguard_state",
+  "get_agentzcash_state",
   {
-    title: "Get ZecGuard State",
+    title: "Get AgentZcash State",
     description: "Inspect purchases, wallet state, activity, and receipts.",
     annotations: {
       readOnlyHint: true
     },
     inputSchema: {}
   },
-  async () => textResult(await callTool("get_zecguard_state", {}))
+  async () => textResult(await callTool("get_agentzcash_state", {}))
 );
 
 const transport = new StdioServerTransport();

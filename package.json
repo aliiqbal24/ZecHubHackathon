@@ -1,5 +1,5 @@
 {
-  "name": "zecguard",
+  "name": "agentzcash-workspace",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -8,16 +8,14 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run build -w @zecguard/core && concurrently -k -n DASH,MCP,VENDOR -c cyan,magenta,green \"npm run dev -w @zecguard/dashboard\" \"npm run dev -w @zecguard/mcp-server\" \"npm run dev -w @zecguard/demo-vendor\"",
-    "dev:dashboard": "npm run dev -w @zecguard/dashboard",
-    "dev:mcp": "npm run dev -w @zecguard/mcp-server",
-    "dev:vendor": "npm run dev -w @zecguard/demo-vendor",
-    "mcp:stdio": "npm run stdio -w @zecguard/mcp-server",
-    "build": "npm run build -w @zecguard/core && npm run build -w @zecguard/demo-vendor && npm run build -w @zecguard/mcp-server && npm run build -w @zecguard/dashboard",
-    "demo:reset": "node scripts/reset-demo-state.mjs",
-    "demo:verify": "node scripts/verify-demo.mjs",
+    "dev": "npm run build -w @agentzcash/core && concurrently -k -n DASH,MCP -c cyan,magenta \"npm run dev -w @agentzcash/dashboard\" \"npm run dev -w @agentzcash/mcp-server\"",
+    "dev:dashboard": "npm run dev -w @agentzcash/dashboard",
+    "dev:mcp": "npm run dev -w @agentzcash/mcp-server",
+    "mcp:stdio": "npm --silent run stdio -w @agentzcash/mcp-server",
+    "build": "npm run build -w @agentzcash/core && npm run build -w agentzcash && npm run build -w @agentzcash/mcp-server && npm run build -w @agentzcash/dashboard",
     "test": "vitest run",
-    "typecheck": "tsc -b packages/core apps/demo-vendor apps/mcp-server --pretty false"
+    "test:loop": "vitest run apps/dashboard/src/agent-loop.test.ts",
+    "typecheck": "tsc -b packages/core packages/cli apps/mcp-server --pretty false && tsc -p apps/dashboard/tsconfig.json --pretty false"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

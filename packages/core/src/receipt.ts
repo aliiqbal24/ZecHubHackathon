@@ -1,10 +1,12 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { PrivateReceipt } from "./types.js";
 
-const DEFAULT_SECRET = "zecguard-demo-receipt-secret";
-
 function secret(): string {
-  return process.env.ZECGUARD_RECEIPT_SECRET ?? DEFAULT_SECRET;
+  const value = process.env.AGENTZCASH_RECEIPT_SECRET;
+  if (!value) {
+    throw new Error("AGENTZCASH_RECEIPT_SECRET is required to sign or verify receipts.");
+  }
+  return value;
 }
 
 function receiptPayload(receipt: Omit<PrivateReceipt, "signature">): string {

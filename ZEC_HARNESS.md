@@ -1,6 +1,6 @@
 # ZEC Harness Protocol
 
-ZEC Harness is the vendor-side contract ZecGuard agents use to buy products and services with ZEC. It is intentionally small: vendors publish a manifest, quote an order, reserve it, verify payment, and return fulfillment with a signed receipt.
+ZEC Harness is the vendor-side contract AgentZcash agents use to buy products and services with ZEC. Vendors publish a manifest, quote an order, reserve it, verify payment, and return fulfillment with a signed receipt.
 
 ## Vendor Manifest
 
@@ -14,15 +14,15 @@ Required fields:
 
 ```json
 {
-  "name": "Orchard Market Demo",
-  "vendorUrl": "http://localhost:3020",
-  "version": "0.1.0",
-  "description": "Reference ZEC Harness vendor.",
+  "name": "Example Vendor",
+  "vendorUrl": "https://vendor.example",
+  "version": "1.0.0",
+  "description": "ZEC Harness compatible vendor.",
   "zecHarness": {
-    "quoteUrl": "http://localhost:3020/quote",
-    "orderUrl": "http://localhost:3020/orders",
-    "verifyUrlTemplate": "http://localhost:3020/orders/{orderId}/verify",
-    "receiptPublicKey": "hmac-demo-key",
+    "quoteUrl": "https://vendor.example/quote",
+    "orderUrl": "https://vendor.example/orders",
+    "verifyUrlTemplate": "https://vendor.example/orders/{orderId}/verify",
+    "receiptPublicKey": "vendor-receipt-key",
     "supportedFulfillment": ["digital", "physical", "service"]
   },
   "privacy": {
@@ -45,10 +45,10 @@ Request:
 
 ```json
 {
-  "itemId": "ai-brief",
+  "itemId": "service-plan",
   "quantity": 1,
   "options": {
-    "prompt": "Research ZEC-native agent payments"
+    "prompt": "Request the quoted service after showing exact ZEC terms."
   }
 }
 ```
@@ -58,22 +58,22 @@ Response:
 ```json
 {
   "quoteId": "q_...",
-  "vendorUrl": "http://localhost:3020",
-  "vendorName": "Orchard Market Demo",
-  "itemId": "ai-brief",
-  "itemTitle": "Private AI briefing",
-  "amountZec": "0.003",
-  "expiresAt": "2026-05-28T12:00:00.000Z",
+  "vendorUrl": "https://vendor.example",
+  "vendorName": "Example Vendor",
+  "itemId": "service-plan",
+  "itemTitle": "Service Plan",
+  "amountZec": "0.01",
+  "expiresAt": "2026-06-09T12:00:00.000Z",
   "terms": ["Vendor fulfills only after payment verification."],
   "requiredPii": [],
-  "fulfillmentType": "digital",
+  "fulfillmentType": "service",
   "privacy": {
     "label": "ZEC + vendor logs",
     "grade": "medium",
     "leaks": ["vendor sees order details"],
     "summary": "Payment uses ZEC."
   },
-  "memo": "ZECGUARD:q_...:ai-brief",
+  "memo": "AGENTZCASH:q_...:service-plan",
   "payTo": "u1..."
 }
 ```
@@ -83,7 +83,7 @@ Rules:
 - `amountZec` is a decimal string with at most 8 fractional digits.
 - `memo` must fit the 512-byte Zcash memo limit and include the `quoteId`.
 - `expiresAt` must be enforced by both client and vendor.
-- `requiredPii` must list every identity/shipping/contact field needed before payment.
+- `requiredPii` must list every identity, shipping, or contact field needed before payment.
 
 ## Order Reservation
 
@@ -106,71 +106,69 @@ Response:
   "orderId": "o_...",
   "quoteId": "q_...",
   "status": "awaiting_payment",
-  "amountZec": "0.003",
+  "amountZec": "0.01",
   "payTo": "u1...",
-  "memo": "ZECGUARD:q_...:ai-brief",
-  "expiresAt": "2026-05-28T12:00:00.000Z"
+  "memo": "AGENTZCASH:q_...:service-plan",
+  "expiresAt": "2026-06-09T12:00:00.000Z"
 }
 ```
 
 ## Payment Verification
 
-Prototype:
+Endpoint:
 
 ```text
 POST /orders/:orderId/verify
 ```
 
-The demo vendor scans the local mock payment ledger for a payment matching:
+The vendor fulfills only after it verifies the exact:
 
-- `orderId`
-- `vendorUrl`
 - `amountZec`
 - `payTo`
 - `memo`
+- order correlation
+- required confirmation count
 
-Production vendors should replace this with Zcash wallet or viewing-key monitoring. The important contract is that fulfillment must not happen until the vendor verifies the exact payment instructions.
-
-For physical orders, `verify` may receive approval-gated PII:
+If an order requires personal information, `verify` may receive approval-gated fields:
 
 ```json
 {
   "releasedPii": {
-    "name": "Ada Demo",
-    "line1": "123 Orchard Lane",
-    "city": "Denver",
-    "region": "CO",
-    "postalCode": "80202",
-    "country": "US",
-    "email": "ada@example.test"
+    "name": "Customer Name",
+    "line1": "Shipping line 1",
+    "city": "City",
+    "region": "Region",
+    "postalCode": "Postal code",
+    "country": "Country",
+    "email": "customer@example.com"
   }
 }
 ```
 
 ## Receipt
 
-Once paid, vendor returns:
+Once paid, the vendor returns:
 
 ```json
 {
   "status": "fulfilled",
   "fulfillment": {
-    "type": "digital",
-    "summary": "Private AI briefing delivered.",
+    "type": "service",
+    "summary": "Payment verified. Fulfillment is handled by the vendor.",
     "payload": {}
   },
   "receipt": {
     "receiptId": "r_...",
     "orderId": "o_...",
     "quoteId": "q_...",
-    "vendorUrl": "http://localhost:3020",
-    "amountZec": "0.003",
-    "txId": "mock-zec-...",
-    "fulfilledAt": "2026-05-28T12:00:00.000Z",
-    "summary": "Private AI briefing delivered.",
+    "vendorUrl": "https://vendor.example",
+    "amountZec": "0.01",
+    "txId": "real-zec-transaction-id",
+    "fulfilledAt": "2026-06-09T12:00:00.000Z",
+    "summary": "Payment verified. Fulfillment is handled by the vendor.",
     "signature": "..."
   }
 }
 ```
 
-The prototype uses HMAC receipts. A production vendor should sign receipts with a stable public key published in the manifest.
+Vendors should sign receipts with a stable public key published in the manifest. AgentZcash requires `AGENTZCASH_RECEIPT_SECRET` for its local receipt signing and verification helpers.

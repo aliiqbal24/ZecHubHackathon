@@ -1,10 +1,10 @@
-# Codex Instructions
+# AgentZcash Agent Instructions
 
-These instructions apply to the whole ZecGuard repository.
+These instructions apply to the whole AgentZcash repository.
 
 ## Default Git Workflow
 
-- For code or documentation changes in this app, Codex should finish by committing and pushing its own changes to the current branch on `origin`.
+- For code or documentation changes in this app, Codex should finish by committing and pushing its own changes to the current branch on `origin` unless the user asks otherwise.
 - Before committing, run the most relevant verification for the change. Prefer `npm test`, `npm run typecheck`, `npm run build`, or a narrower workspace command when that is the practical fit.
 - Stage only the files changed for the current task. Do not stage, revert, or rewrite unrelated local changes already present in the worktree.
 - Use a concise commit message that describes the user-facing change.
@@ -17,6 +17,15 @@ These instructions apply to the whole ZecGuard repository.
 - If verification cannot run, commit only when the risk is clear and report the reason.
 - If pushing fails because of authentication, network access, branch protection, or another external constraint, leave the local commit in place and report the exact blocker.
 
-## Safety Notes
+## Payment Safety
 
-- `approve_and_pay_purchase` can submit real ZEC when `walletMode` is `external-cli`. Only call it after explicit user approval in chat and the normal MCP/tool permission prompt.
+Use the `agentzcash` MCP server for ZEC payments. Never approve or submit a payment autonomously.
+
+For a direct shielded transfer:
+
+1. Call `prepare_direct_transfer` with recipient name, exact shielded-capable Zcash address, amount in ZEC, memo, purpose, evidence URLs, and verification notes.
+2. Return the `approvalUrl` from the tool result to the user.
+3. Tell the user to review and approve or reject the payment in the AgentZcash dashboard.
+4. After approval, use `get_agentzcash_state` to confirm the local receipt or payment failure.
+
+Direct transfers require a shielded-capable recipient address (`u1`, `utest`, `zs`, or `ztestsapling`). Transparent-only `t1` and `t3` addresses are intentionally blocked for direct agent transfers.

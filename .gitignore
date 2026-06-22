@@ -4,6 +4,7 @@ dist/
 coverage/
 .turbo/
 .zecguard/
+.agentzcash/
 .env
 .env.local
 npm-debug.log*

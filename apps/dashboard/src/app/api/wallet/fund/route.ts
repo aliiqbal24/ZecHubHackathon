@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { appendActivity, loadConfig, loadState, refreshWalletBalance, saveState, zecToZats } from "@zecguard/core";
+import { appendActivity, loadConfig, loadState, refreshWalletBalance, saveState } from "@agentzcash/core";
 
 export const dynamic = "force-dynamic";
 
@@ -7,22 +7,18 @@ export async function POST() {
   const config = loadConfig();
   const state = loadState();
 
-  if (config.agent.walletMode !== "mock") {
-    await refreshWalletBalance(state, config);
-    saveState(state);
-    return NextResponse.json({
-      ok: true,
-      wallet: state.wallet,
-      message: "Balance refreshed from wallet."
-    });
-  }
-
-  state.wallet.balanceZats += zecToZats("0.10");
+  await refreshWalletBalance(state, config);
   appendActivity(state, {
     kind: "system",
-    title: "Mock wallet topped up",
-    detail: "Added 0.10 ZEC to the local demo wallet."
+    title: "Wallet balance refreshed",
+    detail: state.wallet.balanceSource === "live"
+      ? "Balance refreshed from the configured external wallet."
+      : "External wallet balance could not be refreshed; showing 0 ZEC until a live balance is available."
   });
   saveState(state);
-  return NextResponse.json({ ok: true, wallet: state.wallet });
+  return NextResponse.json({
+    ok: true,
+    wallet: state.wallet,
+    message: "Balance refreshed from wallet."
+  });
 }

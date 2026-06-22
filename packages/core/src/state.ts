@@ -1,30 +1,35 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { getZecGuardHome, loadConfig } from "./config.js";
-import { zecToZats } from "./money.js";
+import { getStatePath, loadConfig } from "./config.js";
 import { createWalletAdapter } from "./wallet.js";
-import type { ActivityEvent, PaymentLedgerEntry, PaymentRecord, Purchase, VendorOrder, ZecGuardConfig, ZecGuardState } from "./types.js";
-
-const INITIAL_BALANCE_ZEC = "0.25";
+import type {
+  ActivityEvent,
+  PaymentRecord,
+  Purchase,
+  TransactionInfo,
+  VendorOrder,
+  AgentZcashConfig,
+  AgentZcashState
+} from "./types.js";
 
 function statePath(): string {
-  return process.env.ZECGUARD_STATE_PATH ?? path.join(getZecGuardHome(), "state.json");
+  return getStatePath();
 }
 
-export function createInitialState(): ZecGuardState {
+export function createInitialState(): AgentZcashState {
   const config = loadConfig();
-  const isMock = config.agent.walletMode === "mock";
 
   return {
     wallet: {
       mode: config.agent.walletMode,
       address: config.agent.walletAddress,
-      balanceZats: isMock ? zecToZats(INITIAL_BALANCE_ZEC) : 0,
+      balanceZats: 0,
       spentTodayZats: 0,
-      spentMonthZats: 0,
-      balanceSource: isMock ? "mock" : "cached",
-      balanceUpdatedAt: new Date().toISOString()
+        spentMonthZats: 0,
+        balanceSource: "unavailable",
+        balanceUpdatedAt: new Date().toISOString(),
+        backup: {}
     },
     purchases: [],
     activity: [
@@ -32,18 +37,15 @@ export function createInitialState(): ZecGuardState {
         id: randomUUID(),
         timestamp: new Date().toISOString(),
         kind: "system",
-        title: "ZecGuard initialized",
-        detail: isMock
-          ? "Mock agent wallet funded for local prototype."
-          : "External wallet configured. Balance will update on next query."
+        title: "AgentZcash initialized",
+        detail: "External wallet configured. Balance will update on next query."
       }
     ],
-    vendorOrders: [],
-    paymentLedger: []
+    vendorOrders: []
   };
 }
 
-export function loadState(): ZecGuardState {
+export function loadState(): AgentZcashState {
   const file = statePath();
   if (!fs.existsSync(file)) {
     const initial = createInitialState();
@@ -51,17 +53,17 @@ export function loadState(): ZecGuardState {
     return initial;
   }
 
-  return normalizeState(JSON.parse(fs.readFileSync(file, "utf8")) as Partial<ZecGuardState>);
+  return normalizeState(JSON.parse(fs.readFileSync(file, "utf8")) as Partial<AgentZcashState>);
 }
 
-export function saveState(state: ZecGuardState): void {
+export function saveState(state: AgentZcashState): void {
   const file = statePath();
   recalculateWalletSpend(state);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`);
 }
 
-export function updateState(mutator: (state: ZecGuardState) => void): ZecGuardState {
+export function updateState(mutator: (state: AgentZcashState) => void): AgentZcashState {
   const state = loadState();
   mutator(state);
   recalculateWalletSpend(state);
@@ -70,7 +72,7 @@ export function updateState(mutator: (state: ZecGuardState) => void): ZecGuardSt
 }
 
 export function appendActivity(
-  state: ZecGuardState,
+  state: AgentZcashState,
   event: Omit<ActivityEvent, "id" | "timestamp">
 ): void {
   state.activity.unshift({
@@ -81,7 +83,7 @@ export function appendActivity(
   state.activity = state.activity.slice(0, 80);
 }
 
-export function upsertPurchase(state: ZecGuardState, purchase: Purchase): void {
+export function upsertPurchase(state: AgentZcashState, purchase: Purchase): void {
   const index = state.purchases.findIndex((item) => item.id === purchase.id);
   if (index >= 0) {
     state.purchases[index] = purchase;
@@ -90,7 +92,7 @@ export function upsertPurchase(state: ZecGuardState, purchase: Purchase): void {
   }
 }
 
-export function upsertVendorOrder(state: ZecGuardState, order: VendorOrder): void {
+export function upsertVendorOrder(state: AgentZcashState, order: VendorOrder): void {
   const index = state.vendorOrders.findIndex((item) => item.orderId === order.orderId);
   if (index >= 0) {
     state.vendorOrders[index] = order;
@@ -99,7 +101,7 @@ export function upsertVendorOrder(state: ZecGuardState, order: VendorOrder): voi
   }
 }
 
-export function attachPaymentToVendorOrder(state: ZecGuardState, orderId: string, payment: PaymentRecord): void {
+export function attachPaymentToVendorOrder(state: AgentZcashState, orderId: string, payment: PaymentRecord): void {
   const order = state.vendorOrders.find((item) => item.orderId === orderId);
   if (!order) {
     return;
@@ -110,33 +112,7 @@ export function attachPaymentToVendorOrder(state: ZecGuardState, orderId: string
   order.paidAt = new Date().toISOString();
 }
 
-export function recordPayment(
-  state: ZecGuardState,
-  entry: Omit<PaymentLedgerEntry, "recordedAt">
-): PaymentLedgerEntry {
-  const ledgerEntry = {
-    ...entry,
-    recordedAt: new Date().toISOString()
-  };
-  state.paymentLedger.unshift(ledgerEntry);
-  state.paymentLedger = state.paymentLedger.slice(0, 200);
-  return ledgerEntry;
-}
-
-export function findMatchingLedgerPayment(state: ZecGuardState, order: VendorOrder): PaymentLedgerEntry | undefined {
-  return state.paymentLedger.find(
-    (payment) =>
-      payment.orderId === order.orderId &&
-      payment.vendorUrl === order.quote.vendorUrl &&
-      payment.amountZec === order.quote.amountZec &&
-      payment.payTo === order.quote.payTo &&
-      payment.memo === order.quote.memo
-  );
-}
-
-export async function refreshWalletBalance(state: ZecGuardState, config: ZecGuardConfig): Promise<void> {
-  if (config.agent.walletMode === "mock") return;
-
+export async function refreshWalletBalance(state: AgentZcashState, config: AgentZcashConfig): Promise<void> {
   const adapter = createWalletAdapter(config);
   try {
     const balanceZats = await adapter.getBalance();
@@ -144,27 +120,114 @@ export async function refreshWalletBalance(state: ZecGuardState, config: ZecGuar
     state.wallet.balanceSource = "live";
     state.wallet.balanceUpdatedAt = new Date().toISOString();
   } catch {
-    state.wallet.balanceSource = "cached";
+    state.wallet.balanceZats = 0;
+    state.wallet.balanceSource = "unavailable";
+    state.wallet.balanceUpdatedAt = new Date().toISOString();
   }
 }
 
-function normalizeState(state: Partial<ZecGuardState>): ZecGuardState {
+export async function refreshPendingDirectTransferConfirmations(
+  state: AgentZcashState,
+  config: AgentZcashConfig
+): Promise<boolean> {
+  const pending = state.purchases.filter(
+    (purchase) =>
+      purchase.kind === "direct_transfer" &&
+      purchase.payment &&
+      (purchase.status === "payment_submitted" || purchase.status === "pending_confirmation")
+  );
+  if (!pending.length) return false;
+
+  const adapter = createWalletAdapter(config);
+  const minConfirmations = config.verification?.minConfirmations ?? 1;
+  let changed = false;
+
+  for (const purchase of pending) {
+    if (!purchase.payment) continue;
+    const txInfo = await adapter.checkTransaction(purchase.payment.txId);
+    changed = applyDirectTransferConfirmation(state, purchase, txInfo, minConfirmations) || changed;
+  }
+
+  return changed;
+}
+
+export function applyDirectTransferConfirmation(
+  state: AgentZcashState,
+  purchase: Purchase,
+  txInfo: TransactionInfo,
+  minConfirmations: number
+): boolean {
+  if (purchase.kind !== "direct_transfer" || !purchase.payment || !purchase.directTransfer) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const wasConfirmed = purchase.status === "receipted";
+  const confirmed = txInfo.confirmations >= minConfirmations;
+
+  purchase.paymentReceipt ??= {
+    receiptId: `receipt_${purchase.id}`,
+    kind: "direct_transfer",
+    recipientName: purchase.directTransfer.recipientName,
+    payTo: purchase.payTo,
+    amountZec: purchase.amountZec,
+    memo: purchase.memo,
+    purpose: purchase.directTransfer.purpose,
+    evidenceUrls: purchase.directTransfer.evidenceUrls,
+    txId: purchase.payment.txId,
+    submittedAt: purchase.payment.submittedAt,
+    summary: `${purchase.amountZec} ZEC submitted to ${purchase.directTransfer.recipientName}.`
+  };
+
+  purchase.paymentReceipt.confirmationStatus = confirmed ? "confirmed" : txInfo.status;
+  purchase.paymentReceipt.confirmations = txInfo.confirmations;
+  purchase.paymentReceipt.blockHeight = txInfo.blockHeight;
+  purchase.paymentReceipt.lastCheckedAt = now;
+
+  if (confirmed) {
+    purchase.status = "receipted";
+    purchase.paymentReceipt.confirmedAt ??= now;
+    purchase.paymentReceipt.summary = `${purchase.amountZec} ZEC confirmed to ${purchase.directTransfer.recipientName}.`;
+    if (!wasConfirmed) {
+      appendActivity(state, {
+        kind: "receipt",
+        title: "Direct transfer confirmed",
+        detail: `${purchase.payment.txId} reached ${txInfo.confirmations} confirmation${txInfo.confirmations === 1 ? "" : "s"}.`,
+        purchaseId: purchase.id
+      });
+    }
+  } else {
+    purchase.status = "pending_confirmation";
+  }
+
+  purchase.updatedAt = now;
+  return true;
+}
+
+function normalizeState(state: Partial<AgentZcashState>): AgentZcashState {
   const initial = createInitialState();
   return {
     ...initial,
     ...state,
     wallet: {
-      ...initial.wallet,
-      ...state.wallet
+      ...(state.wallet ?? {}),
+      mode: initial.wallet.mode,
+      address: initial.wallet.address,
+      balanceZats: 0,
+      spentTodayZats: state.wallet?.spentTodayZats ?? initial.wallet.spentTodayZats,
+      spentMonthZats: state.wallet?.spentMonthZats ?? initial.wallet.spentMonthZats,
+      balanceSource: "unavailable",
+      balanceUpdatedAt: undefined,
+      syncStatus: state.wallet?.syncStatus,
+      backup: state.wallet?.backup ?? initial.wallet.backup
     },
     purchases: state.purchases ?? [],
     activity: state.activity ?? initial.activity,
-    vendorOrders: state.vendorOrders ?? [],
-    paymentLedger: state.paymentLedger ?? []
+    vendorOrders: state.vendorOrders ?? []
   };
 }
 
-function recalculateWalletSpend(state: ZecGuardState): void {
+function recalculateWalletSpend(state: AgentZcashState): void {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const month = now.toISOString().slice(0, 7);

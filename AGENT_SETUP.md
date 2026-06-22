@@ -1,25 +1,41 @@
 # Agent Setup
 
-ZecGuard exposes both an HTTP tool surface for local testing and an MCP stdio server for agents that support MCP.
+AgentZcash exposes both an HTTP tool surface for local testing and an MCP stdio server for agents that support MCP.
+
+For the complete fresh-computer flow, use [QUICKSTART.md](QUICKSTART.md).
 
 ## Run The Stack
 
 ```bash
-npm run dev
+npx agentzcash init
 ```
+
+After the wallet is funded, run the readiness check:
+
+```bash
+npx agentzcash doctor --loop
+```
+
+It verifies wallet balance visibility, MCP config, build outputs, the MCP tool list, and an isolated no-funds direct-transfer prepare path.
 
 Services:
 
 - Dashboard: `http://localhost:3000`
 - MCP HTTP server: `http://localhost:3010`
-- Demo vendor: `http://localhost:3020`
 
 ## MCP Stdio
 
-Use this command in an MCP-capable client:
+Project-scoped configs are included:
+
+- Claude Code: `.mcp.json`
+- Codex: `.codex/config.toml`
+
+Start the agent client from the repo root and approve/trust the project MCP server when prompted.
+
+Manual stdio command:
 
 ```bash
-npm run mcp:stdio
+npm --silent run mcp:stdio
 ```
 
 Working directory:
@@ -32,32 +48,12 @@ Tools:
 
 - `discover_zec_vendor`
 - `request_quote`
-- `prepare_zec_payment`
-- `review_purchase`
-- `approve_and_pay_purchase`
+- `prepare_purchase`
+- `prepare_direct_transfer`
 - `claim_fulfillment`
-- `get_zecguard_state`
+- `get_agentzcash_state`
 
-`approve_and_pay_purchase` is destructive, non-idempotent, and can submit real ZEC when `walletMode` is `external-cli`. Do not configure your MCP client to auto-approve this tool. Inline approval relies on the agent client's normal permission prompt plus an explicit user confirmation in chat; the dashboard approval screen remains the safer fallback.
-
-## Client Setup
-
-Claude Code:
-
-```bash
-claude mcp add zecguard -- npm run mcp:stdio
-```
-
-Codex MCP config:
-
-```toml
-[mcp_servers.zecguard]
-command = "npm"
-args = ["run", "mcp:stdio"]
-cwd = "C:\\SWE_Projects\\ZecHubEz"
-```
-
-Keep MCP tool approval prompts enabled, especially for `approve_and_pay_purchase`.
+Approval is intentionally not exposed as an autonomous MCP tool. The agent can request and prepare a purchase or direct transfer; the dashboard user approves payment.
 
 ## HTTP Tool Calls
 
@@ -67,50 +63,38 @@ List tools:
 curl http://localhost:3010/mcp/tools
 ```
 
-Request a quote:
+Request a quote from a real ZEC Harness vendor:
 
 ```bash
 curl -X POST http://localhost:3010/mcp/call ^
   -H "content-type: application/json" ^
-  -d "{\"name\":\"request_quote\",\"args\":{\"vendorUrl\":\"http://localhost:3020\",\"itemId\":\"ai-brief\",\"options\":{\"prompt\":\"Explain private agent commerce.\"}}}"
+  -d "{\"name\":\"request_quote\",\"args\":{\"vendorUrl\":\"https://vendor.example\",\"itemId\":\"service-plan\",\"options\":{\"prompt\":\"Request the quoted service after showing exact ZEC terms.\"}}}"
 ```
 
-Then open the dashboard and approve the purchase.
+Then open the dashboard and approve or reject the purchase.
 
-Prepare a generic ZIP-321/raw ZEC payment:
-
-```bash
-curl -X POST http://localhost:3010/mcp/call ^
-  -H "content-type: application/json" ^
-  -d "{\"name\":\"prepare_zec_payment\",\"args\":{\"paymentUri\":\"zcash:u1recipient0000000000000000000000000000000000000000?amount=0.003&memo=invoice-123\",\"recipientLabel\":\"Report vendor\"}}"
-```
-
-Review the exact spend before approval:
+Prepare a direct transfer:
 
 ```bash
 curl -X POST http://localhost:3010/mcp/call ^
   -H "content-type: application/json" ^
-  -d "{\"name\":\"review_purchase\",\"args\":{\"purchaseId\":\"p_...\"}}"
-```
-
-Submit payment only after explicit user approval:
-
-```bash
-curl -X POST http://localhost:3010/mcp/call ^
-  -H "content-type: application/json" ^
-  -d "{\"name\":\"approve_and_pay_purchase\",\"args\":{\"purchaseId\":\"p_...\"}}"
+  -d "{\"name\":\"prepare_direct_transfer\",\"args\":{\"recipientName\":\"Alice\",\"amountZec\":\"0.01\",\"address\":\"u1...\",\"memo\":\"thanks\",\"purpose\":\"invoice payment\",\"evidenceUrls\":[\"https://example.com/invoice\"],\"agentVerificationNotes\":\"Address copied from invoice.\"}}"
 ```
 
 ## Agent Prompt
 
-Use this instruction with an agent connected to ZecGuard:
+Use this instruction with an agent connected to AgentZcash:
 
 ```text
-You can request ZEC purchases through ZecGuard, but you may not approve payment. Before requesting a quote, identify the vendor, item, expected amount, fulfillment type, privacy disclosure, and any PII required. After ZecGuard creates a purchase, tell the user to review the dashboard approval screen.
+You can prepare direct ZEC transfers and request ZEC purchases through AgentZcash, but you may not approve payment. For direct transfers, use only shielded-capable recipient addresses that start with u1, utest, zs, or ztestsapling. Include recipient name, exact address, amount, memo, purpose, evidence URLs, and your verification notes. After AgentZcash creates a spend request, tell the user to review the dashboard approval screen. After the user approves, call get_agentzcash_state and report whether the transfer is pending confirmation or receipted.
 ```
 
-For inline MCP approval, use this stricter instruction:
+## Loop Smoke Test
 
-```text
-You may prepare and review ZEC payments through ZecGuard. Before calling approve_and_pay_purchase, show the exact ZEC amount, recipient address, memo, expiry, policy result, and whether fulfillment is automatic or only a local receipt. Call approve_and_pay_purchase only after I explicitly confirm the payment in chat and the MCP client permission prompt is shown.
+Run the no-funds smoke test before trying a real wallet transfer:
+
+```bash
+npm run test:loop
 ```
+
+It creates a temporary AgentZcash home, queues a direct transfer through the same MCP tool implementation, approves it through the dashboard API route with a fake wallet command, and checks that a direct-transfer receipt is stored.

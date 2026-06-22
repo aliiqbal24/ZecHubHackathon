@@ -1,0 +1,32 @@
+agent:
+  name: Research Buyer
+  walletMode: external-cli
+  walletAddress: configure-your-zcash-address
+  walletPreset: zingo-cli
+  # walletPreset: zodl
+  # walletPreset: zallet
+
+spending:
+  perTransactionZec: "0.05"
+  dailyZec: "0.15"
+  monthlyZec: "1.00"
+
+approval:
+  requireEveryPayment: true
+  allowOneTimeOverride: true
+
+vendors:
+  allowUnknownVendors: true
+  trusted: []
+
+privacy:
+  showPrivacyLabel: true
+
+verification:
+  mode: external-cli
+  minConfirmations: 1
+  externalCliCommand: "zingo-cli notes"
+  # mode: lightwalletd
+  # lightwalletdUrl: "https://mainnet.lightwalletd.com"
+
+shippingProfiles: []

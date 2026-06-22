@@ -1,5 +1,5 @@
 {
-  "name": "@zecguard/mcp-server",
+  "name": "@agentzcash/mcp-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.24.1",
-    "@zecguard/core": "*",
+    "@agentzcash/core": "*",
     "cors": "^2.8.5",
     "express": "^5.2.1",
     "zod": "^4.1.13"

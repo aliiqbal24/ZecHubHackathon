@@ -9,20 +9,17 @@ import {
   FileCheck,
   Gauge,
   KeyRound,
-  Package,
   RefreshCw,
   ShieldCheck,
-  ShoppingCart,
-  Terminal,
   X
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { ActivityEvent, Purchase, ShippingProfile, WalletState, ZecGuardConfig, ZecGuardState } from "@zecguard/core";
+import type { ActivityEvent, Purchase, ShippingProfile, WalletState, AgentZcashConfig, AgentZcashState } from "@agentzcash/core";
 
 interface DashboardPayload {
-  config: ZecGuardConfig;
+  config: AgentZcashConfig;
   configText: string;
-  state: ZecGuardState;
+  state: AgentZcashState;
 }
 
 function zec(zats: number): string {
@@ -42,9 +39,6 @@ function statusTone(status: Purchase["status"]): string {
 
 export function DashboardClient() {
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
-  const [requestText, setRequestText] = useState(
-    "Buy a private AI briefing about how ZEC-native vendors can accept agent purchases."
-  );
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,7 +62,7 @@ export function DashboardClient() {
       ) ?? [],
     [payload]
   );
-  const receipts = payload?.state.purchases.filter((purchase) => purchase.receipt) ?? [];
+  const receipts = payload?.state.purchases.filter((purchase) => purchase.receipt || purchase.paymentReceipt) ?? [];
 
   async function callAction(label: string, action: () => Promise<Response>) {
     setBusy(label);
@@ -85,16 +79,6 @@ export function DashboardClient() {
     } finally {
       setBusy(null);
     }
-  }
-
-  function requestPurchase() {
-    return callAction("request", () =>
-      fetch("/api/demo/request-purchase", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ requestText })
-      })
-    );
   }
 
   function approve(purchase: Purchase) {
@@ -131,7 +115,7 @@ export function DashboardClient() {
       <main className="shell">
         <div className="loading-panel">
           <RefreshCw className="spin" size={18} />
-          Loading ZecGuard
+          Loading AgentZcash
         </div>
       </main>
     );
@@ -141,7 +125,7 @@ export function DashboardClient() {
     <main className="shell">
       <header className="topbar">
         <div>
-          <div className="eyebrow">ZecGuard</div>
+          <div className="eyebrow">AgentZcash</div>
           <h1>Agent spending firewall</h1>
         </div>
         <div className="top-actions">
@@ -168,53 +152,16 @@ export function DashboardClient() {
           icon={<FileCheck size={18} />}
           label="Receipts"
           value={String(receipts.length)}
-          detail="signed private receipts"
+          detail="stored payment receipts"
         />
       </section>
 
       <section className="workspace-grid">
-        <section className="panel purchase-panel">
-          <div className="panel-heading">
-            <div>
-              <h2>Agent request</h2>
-              <p>Natural-language intent converted into a ZEC Harness purchase.</p>
-            </div>
-            <button className="primary-button" onClick={() => void requestPurchase()} disabled={busy !== null}>
-              <ShoppingCart size={16} />
-              Request quote
-            </button>
-          </div>
-          <textarea
-            value={requestText}
-            onChange={(event) => setRequestText(event.target.value)}
-            spellCheck={false}
-            aria-label="Agent purchase request"
-          />
-          <div className="quick-actions">
-            <button
-              className="secondary-button"
-              onClick={() =>
-                setRequestText("Buy a private AI briefing about Zcash agent payment safety and receipt design.")
-              }
-            >
-              <Terminal size={15} />
-              AI service
-            </button>
-            <button
-              className="secondary-button"
-              onClick={() => setRequestText("Buy and ship the privacy hardware starter kit using my home profile.")}
-            >
-              <Package size={15} />
-              Physical item
-            </button>
-          </div>
-        </section>
-
         <section className="panel approvals-panel">
           <div className="panel-heading">
             <div>
               <h2>Approvals</h2>
-              <p>{pendingPurchases.length ? `${pendingPurchases.length} purchase waiting` : "No pending spend"}</p>
+              <p>{pendingPurchases.length ? `${pendingPurchases.length} spend waiting` : "No pending spend"}</p>
             </div>
           </div>
           <div className="approval-list">
@@ -257,19 +204,18 @@ function WalletMetric({
   busy: boolean;
   onTopUp: () => void;
 }) {
-  const isReal = wallet.mode === "external-cli";
   return (
     <article className="metric-card">
       <div className="metric-icon">
         <Coins size={18} />
       </div>
       <div>
-        <span>Agent balance{wallet.balanceSource === "live" ? " (live)" : wallet.balanceSource === "cached" ? " (cached)" : ""}</span>
+        <span>Agent balance{wallet.balanceSource === "live" ? " (live)" : " (unavailable)"}</span>
         <strong>{zec(wallet.balanceZats)}</strong>
         <small>{wallet.address.slice(0, 18)}...</small>
       </div>
-      <button className="mini-button" onClick={onTopUp} disabled={busy} title={isReal ? "Refresh balance" : "Add 0.10 ZEC"}>
-        {isReal ? <RefreshCw size={14} /> : <Coins size={14} />}
+      <button className="mini-button" onClick={onTopUp} disabled={busy} title="Refresh balance">
+        <RefreshCw size={14} />
       </button>
     </article>
   );
@@ -334,7 +280,7 @@ function PurchaseApproval({
         <div>
           <div className="approval-title">{purchase.itemTitle}</div>
           <div className="approval-meta">
-            {purchase.vendorName} · {purchase.amountZec} ZEC · {statusLabel(purchase.status)}
+            {purchase.vendorName} - {purchase.amountZec} ZEC - {statusLabel(purchase.status)}
           </div>
         </div>
         <span className={`privacy-badge ${purchase.privacy.grade}`}>{purchase.privacy.label}</span>
@@ -360,6 +306,13 @@ function PurchaseApproval({
           </div>
         </div>
       </div>
+
+      {purchase.kind === "direct_transfer" ? (
+        <div className="pii-box">
+          <strong>Address:</strong> {purchase.payTo}
+          {purchase.memo ? <span> Memo: {purchase.memo}</span> : null}
+        </div>
+      ) : null}
 
       {purchase.requiredPii.length ? (
         <div className="pii-box">
@@ -418,7 +371,7 @@ function ReceiptsPanel({ purchases }: { purchases: Purchase[] }) {
             <div className="receipt-row" key={purchase.id}>
               <div>
                 <strong>{purchase.itemTitle}</strong>
-                <p>{purchase.receipt?.summary}</p>
+                <p>{purchase.receipt?.summary ?? purchase.paymentReceipt?.summary}</p>
               </div>
               <span className={`status-tag ${statusTone(purchase.status)}`}>{purchase.amountZec} ZEC</span>
             </div>
@@ -434,7 +387,7 @@ function ReceiptsPanel({ purchases }: { purchases: Purchase[] }) {
   );
 }
 
-function PolicyPanel({ configText, config }: { configText: string; config: ZecGuardConfig }) {
+function PolicyPanel({ configText, config }: { configText: string; config: AgentZcashConfig }) {
   return (
     <section className="panel">
       <div className="panel-heading compact">

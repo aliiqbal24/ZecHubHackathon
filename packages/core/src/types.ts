@@ -15,6 +15,8 @@ export type PurchaseStatus =
   | "payment_failed"
   | "verification_failed";
 
+export type PurchaseKind = "vendor_purchase" | "direct_transfer";
+
 export type TransactionStatus = "pending" | "confirmed" | "not_found";
 
 export interface TransactionInfo {
@@ -34,7 +36,7 @@ export interface WalletPreset {
   transactionCheckCommandTemplate: string;
 }
 
-export type VerificationMode = "mock" | "external-cli" | "lightwalletd";
+export type VerificationMode = "external-cli" | "lightwalletd";
 
 export interface VerificationConfig {
   mode: VerificationMode;
@@ -59,12 +61,18 @@ export type PolicySeverity = "pass" | "warn" | "blocked";
 
 export interface AgentConfig {
   name: string;
-  walletMode: "mock" | "external-cli";
+  walletMode: "external-cli";
   walletAddress: string;
   externalCliCommand?: string;
   externalCliBalanceCommand?: string;
   externalCliTxCheckCommand?: string;
   walletPreset?: WalletPresetName;
+}
+
+export interface WalletBackupState {
+  seedConfirmedAt?: string;
+  recoveryShownAt?: string;
+  walletBirthday?: number;
 }
 
 export interface SpendingConfig {
@@ -101,7 +109,7 @@ export interface ShippingProfile {
   phone?: string;
 }
 
-export interface ZecGuardConfig {
+export interface AgentZcashConfig {
   agent: AgentConfig;
   spending: SpendingConfig;
   approval: ApprovalConfig;
@@ -166,6 +174,16 @@ export interface QuoteResponse {
   payTo: string;
 }
 
+export interface DirectTransferRequest {
+  recipientName: string;
+  amountZec: string;
+  address: string;
+  memo: string;
+  purpose: string;
+  evidenceUrls: string[];
+  agentVerificationNotes: string;
+}
+
 export interface OrderResponse {
   orderId: string;
   quoteId: string;
@@ -183,14 +201,7 @@ export interface PaymentRecord {
   payTo: string;
   memo: string;
   submittedAt: string;
-  walletMode: "mock" | "external-cli";
-}
-
-export interface PaymentLedgerEntry extends PaymentRecord {
-  purchaseId: string;
-  orderId: string;
-  vendorUrl: string;
-  recordedAt: string;
+  walletMode: "external-cli";
 }
 
 export interface PrivateReceipt {
@@ -207,13 +218,21 @@ export interface PrivateReceipt {
 
 export interface LocalPaymentReceipt {
   receiptId: string;
-  purchaseId: string;
-  amountZec: string;
+  kind: "direct_transfer";
+  recipientName: string;
   payTo: string;
+  amountZec: string;
   memo: string;
+  purpose: string;
+  evidenceUrls: string[];
   txId: string;
-  paidAt: string;
+  submittedAt: string;
   summary: string;
+  confirmationStatus?: TransactionStatus;
+  confirmations?: number;
+  blockHeight?: number;
+  lastCheckedAt?: string;
+  confirmedAt?: string;
 }
 
 export interface Fulfillment {
@@ -237,7 +256,7 @@ export interface PolicyResult {
 
 export interface Purchase {
   id: string;
-  source?: "harness" | "generic";
+  kind: PurchaseKind;
   status: PurchaseStatus;
   createdAt: string;
   updatedAt: string;
@@ -264,7 +283,8 @@ export interface Purchase {
   payment?: PaymentRecord;
   fulfillment?: Fulfillment;
   receipt?: PrivateReceipt;
-  localReceipt?: LocalPaymentReceipt;
+  paymentReceipt?: LocalPaymentReceipt;
+  directTransfer?: DirectTransferRequest;
 }
 
 export interface ActivityEvent {
@@ -278,6 +298,7 @@ export interface ActivityEvent {
     | "vendor"
     | "fulfillment"
     | "receipt"
+    | "transfer"
     | "system";
   title: string;
   detail: string;
@@ -285,13 +306,15 @@ export interface ActivityEvent {
 }
 
 export interface WalletState {
-  mode: "mock" | "external-cli";
+  mode: "external-cli";
   address: string;
   balanceZats: number;
   spentTodayZats: number;
   spentMonthZats: number;
-  balanceSource?: "mock" | "cached" | "live";
+  balanceSource?: "unavailable" | "live";
   balanceUpdatedAt?: string;
+  syncStatus?: string;
+  backup?: WalletBackupState;
 }
 
 export interface VendorOrder {
@@ -307,10 +330,9 @@ export interface VendorOrder {
   releasedPii?: Record<string, unknown>;
 }
 
-export interface ZecGuardState {
+export interface AgentZcashState {
   wallet: WalletState;
   purchases: Purchase[];
   activity: ActivityEvent[];
   vendorOrders: VendorOrder[];
-  paymentLedger: PaymentLedgerEntry[];
 }

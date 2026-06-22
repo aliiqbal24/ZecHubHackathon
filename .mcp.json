@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "agentzcash": {
+      "type": "stdio",
+      "command": "npm",
+      "args": ["--silent", "run", "mcp:stdio"],
+      "timeout": 120000
+    }
+  }
+}
