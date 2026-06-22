@@ -35,7 +35,7 @@ Start the agent client from the repo root and approve/trust the project MCP serv
 Manual stdio command:
 
 ```bash
-npm --silent run mcp:stdio
+npx agentzcash mcp stdio
 ```
 
 Working directory:
