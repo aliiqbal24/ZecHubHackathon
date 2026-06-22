@@ -278,6 +278,7 @@ export interface Purchase {
   memo: string;
   expiresAt: string;
   approvedAt?: string;
+  approvalTokenHash?: string;
   rejectedAt?: string;
   approvalReason?: string;
   payment?: PaymentRecord;

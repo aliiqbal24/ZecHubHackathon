@@ -41,6 +41,7 @@ export function DashboardClient() {
   const [payload, setPayload] = useState<DashboardPayload | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [approvalContext, setApprovalContext] = useState<{ purchaseId?: string; approvalToken?: string }>({});
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/state", { cache: "no-store" });
@@ -54,6 +55,14 @@ export function DashboardClient() {
     }, 2500);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setApprovalContext({
+      purchaseId: params.get("purchase") ?? undefined,
+      approvalToken: params.get("approvalToken") ?? undefined
+    });
+  }, []);
 
   const pendingPurchases = useMemo(
     () =>
@@ -82,12 +91,20 @@ export function DashboardClient() {
   }
 
   function approve(purchase: Purchase) {
+    const approvalToken =
+      approvalContext.purchaseId === purchase.id ? approvalContext.approvalToken : undefined;
+    if (!approvalToken) {
+      setError("Open the AgentZcash approval URL before approving this payment.");
+      return;
+    }
+
     return callAction(`approve-${purchase.id}`, () =>
       fetch(`/api/purchases/${purchase.id}/approve`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           profileId: payload?.config.shippingProfiles[0]?.id,
+          approvalToken,
           overrideReason: purchase.policy.severity === "blocked" ? "One-time user override from dashboard." : undefined
         })
       })
@@ -172,6 +189,11 @@ export function DashboardClient() {
                   purchase={purchase}
                   profile={payload.config.shippingProfiles[0]}
                   busy={busy}
+                  canApprove={
+                    approvalContext.purchaseId === purchase.id &&
+                    Boolean(approvalContext.approvalToken) &&
+                    !(purchase.kind === "direct_transfer" && purchase.policy.severity === "blocked")
+                  }
                   onApprove={() => void approve(purchase)}
                   onReject={() => void reject(purchase)}
                 />
@@ -265,12 +287,14 @@ function PurchaseApproval({
   purchase,
   profile,
   busy,
+  canApprove,
   onApprove,
   onReject
 }: {
   purchase: Purchase;
   profile?: ShippingProfile;
   busy: string | null;
+  canApprove: boolean;
   onApprove: () => void;
   onReject: () => void;
 }) {
@@ -326,7 +350,7 @@ function PurchaseApproval({
           <X size={15} />
           Reject
         </button>
-        <button className="primary-button" onClick={onApprove} disabled={busy !== null}>
+        <button className="primary-button" onClick={onApprove} disabled={busy !== null || !canApprove}>
           <Check size={15} />
           Approve
         </button>
