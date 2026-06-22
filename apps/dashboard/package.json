@@ -1,12 +1,20 @@
 {
   "name": "@agentzcash/dashboard",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
+  "files": [
+    ".next/standalone",
+    ".next/static",
+    "public",
+    "scripts",
+    "package.json"
+  ],
   "scripts": {
     "dev": "next dev --port 3000",
     "build": "next build",
-    "start": "next start --port 3000"
+    "postbuild": "node scripts/prepare-standalone.mjs",
+    "start": "node .next/standalone/apps/dashboard/server.js"
   },
   "dependencies": {
     "@agentzcash/core": "*",

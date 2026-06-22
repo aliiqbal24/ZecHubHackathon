@@ -133,6 +133,12 @@ From the repo root:
 npx agentzcash start
 ```
 
+This starts production-mode services when built output is available. For development hot reload, use:
+
+```bash
+npx agentzcash start --dev
+```
+
 Open the dashboard:
 
 ```text

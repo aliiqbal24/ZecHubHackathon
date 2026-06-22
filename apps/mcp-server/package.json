@@ -1,8 +1,19 @@
 {
   "name": "@agentzcash/mcp-server",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
+  "main": "./dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./dist/index.js": "./dist/index.js",
+    "./dist/stdio.js": "./dist/stdio.js",
+    "./dist/tools.js": "./dist/tools.js"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "stdio": "tsx src/stdio.ts",
