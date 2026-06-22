@@ -18,6 +18,12 @@ npx agentzcash doctor --loop
 
 It verifies wallet balance visibility, MCP config, build outputs, the MCP tool list, and an isolated no-funds direct-transfer prepare path.
 
+To check built CLI/MCP/dashboard runtime files without touching wallet state:
+
+```bash
+npx agentzcash doctor --runtime
+```
+
 Services:
 
 - Dashboard: `http://localhost:3000`
