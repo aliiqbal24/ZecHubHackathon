@@ -174,9 +174,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || github.event.inputs.release_tag }}
         run: |
           set -euo pipefail
           TAG="$RELEASE_TAG"
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes "AgentZcash wallet binary assets"
-          gh release upload "$TAG" release-assets/* --clobber
+          gh release view "$TAG" --repo "$GH_REPO" >/dev/null 2>&1 || gh release create "$TAG" --repo "$GH_REPO" --title "$TAG" --notes "AgentZcash wallet binary assets"
+          gh release upload "$TAG" --repo "$GH_REPO" release-assets/* --clobber
