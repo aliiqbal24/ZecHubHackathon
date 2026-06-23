@@ -123,18 +123,24 @@ async function init(flags: Flags) {
   fs.mkdirSync(walletDir, { recursive: true });
 
   const existed = walletExists(walletDir);
+  const needsSeedBackup = !existed || !fs.existsSync(configPath) || !fs.existsSync(statePath);
   let seed = "";
   if (!existed) {
     console.log("Creating AgentZcash managed wallet...");
     await runZingo(["--data-dir", walletDir, "addresses"], 120_000);
+  } else if (needsSeedBackup) {
+    console.log("Existing AgentZcash wallet found without completed setup; showing recovery seed before resuming.");
+  } else {
+    console.log("Existing AgentZcash wallet found; resuming setup.");
+  }
+
+  if (needsSeedBackup) {
     seed = await readWalletSeed(walletDir);
     console.log("");
     console.log("Save this recovery seed now. AgentZcash does not store the plaintext seed.");
     console.log(seed);
     console.log("");
     await requireExactConfirmation("Type \"I saved this seed\" to continue: ", "I saved this seed");
-  } else {
-    console.log("Existing AgentZcash wallet found; resuming setup.");
   }
 
   const address = await readReceiveAddress(walletDir);
@@ -143,7 +149,7 @@ async function init(flags: Flags) {
   state.wallet.address = address;
   state.wallet.backup = {
     ...state.wallet.backup,
-    seedConfirmedAt: existed ? state.wallet.backup?.seedConfirmedAt : new Date().toISOString(),
+    seedConfirmedAt: needsSeedBackup ? new Date().toISOString() : state.wallet.backup?.seedConfirmedAt,
     recoveryShownAt: seed ? new Date().toISOString() : state.wallet.backup?.recoveryShownAt
   };
   saveState(state);
@@ -1225,12 +1231,20 @@ async function runWorkspaceScript(workspace: string, script: string): Promise<vo
 }
 
 async function readWalletSeed(walletDir: string): Promise<string> {
-  const { stdout } = await runZingo(["--data-dir", walletDir, "seed"], 30_000);
-  const seed = stdout.trim();
+  const { stdout } = await runZingo(["--data-dir", walletDir, "recovery_info"], 30_000);
+  const seed = parseRecoverySeed(stdout);
   if (seed.split(/\s+/).length < 20) {
     throw new Error("Zingo CLI did not return a recovery seed. Setup stopped before marking seed backup complete.");
   }
   return seed;
+}
+
+function parseRecoverySeed(output: string): string {
+  const match = output.match(/^\s*seed phrase:\s*(.+?)\s*$/m);
+  if (!match?.[1]) {
+    throw new Error("Zingo CLI did not return a recovery seed. Setup stopped before marking seed backup complete.");
+  }
+  return match[1].trim();
 }
 
 async function readReceiveAddress(walletDir: string): Promise<string> {
