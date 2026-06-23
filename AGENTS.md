@@ -19,13 +19,13 @@ These instructions apply to the whole AgentZcash repository.
 
 ## AgentZcash Payment Safety
 
-Use the `agentzcash` MCP server for ZEC payments. Never approve or submit a payment autonomously.
+Use the `agentzcash` MCP server for ZEC payments. Submit payments only through AgentZcash policy-gated tools.
 
 For a direct shielded transfer:
 
 1. Call `prepare_direct_transfer` with recipient name, exact shielded-capable Zcash address, amount in ZEC, memo, purpose, evidence URLs, and verification notes.
-2. Return the `approvalUrl` from the tool result to the user.
-3. Tell the user to review and approve or reject the payment in the AgentZcash dashboard.
-4. After approval, use `get_agentzcash_state` to confirm the local receipt or payment failure.
+2. If the tool returns `approvalUrl`, return it to the user and tell them to review and approve or reject the payment in the AgentZcash dashboard.
+3. If the tool returns `payment_submitted`, `pending_confirmation`, or `receipted`, report that AgentZcash submitted the payment under local policy.
+4. Use `get_agentzcash_state` to confirm the local receipt or payment failure.
 
 Direct transfers require a shielded-capable recipient address (`u1`, `utest`, `zs`, or `ztestsapling`). Transparent-only `t1` and `t3` addresses are intentionally blocked for direct agent transfers.

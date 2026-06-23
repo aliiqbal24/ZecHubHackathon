@@ -1,8 +1,8 @@
 # AgentZcash Quickstart
 
-This is the fresh-computer path for making a shielded Zcash transfer through Codex or Claude Code with human approval.
+This is the fresh-computer path for making a shielded Zcash transfer through Codex or Claude Code with AgentZcash policy-gated approval.
 
-AgentZcash does not let an agent approve or submit payment by itself. The agent prepares the transfer request, you approve it in the local dashboard, and AgentZcash submits through your managed local wallet.
+Fresh installs require dashboard approval. If you later enable autonomous payments in the dashboard, AgentZcash can submit only clean under-limit payments through local policy.
 
 ## Prerequisites
 
@@ -174,10 +174,10 @@ Memo: Thanks
 Purpose: Payment for invoice 123
 Evidence URL: https://example.com/invoice-123
 
-Do not approve or submit the payment yourself. Return the AgentZcash approval URL and tell me to review it in the dashboard. After I approve, call get_agentzcash_state and tell me whether the transfer is pending confirmation or receipted.
+Use only AgentZcash policy-gated tools. If AgentZcash returns an approval URL, tell me to review it in the dashboard. If it submits under local policy, call get_agentzcash_state and tell me whether the transfer is pending confirmation or receipted.
 ```
 
-The agent should call `prepare_direct_transfer` and return an approval URL like:
+With the default approval-required mode, the agent should call `prepare_direct_transfer` and return an approval URL like:
 
 ```text
 http://localhost:3000/?purchase=p_...
@@ -258,7 +258,7 @@ Then ask the agent to call `get_agentzcash_state` again. Pending usually means t
 ## Safety Rules
 
 - Agents may prepare transfer requests.
-- Agents may not approve, reject, or submit payment through MCP.
+- Agents may submit only through AgentZcash policy-gated MCP tools.
 - You must review the dashboard before money moves.
 - Direct transfers require shielded-capable recipient addresses.
 - Keep the wallet seed private and backed up.

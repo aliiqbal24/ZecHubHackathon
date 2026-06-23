@@ -5,7 +5,7 @@ import { callTool } from "./tools.js";
 
 const server = new McpServer({
   name: "agentzcash",
-  version: "0.1.0"
+  version: "0.2.0"
 });
 
 function textResult(result: unknown) {
@@ -44,7 +44,7 @@ server.registerTool(
   "request_quote",
   {
     title: "Request ZEC Quote",
-    description: "Request a quote and create a dashboard approval request.",
+    description: "Request a quote, then submit payment when policy allows or create a dashboard approval request.",
     annotations: {
       readOnlyHint: false,
       idempotentHint: false
@@ -63,7 +63,7 @@ server.registerTool(
   "prepare_direct_transfer",
   {
     title: "Prepare Direct Transfer",
-    description: "Queue a direct ZEC transfer for dashboard approval. This tool cannot approve or send payment.",
+    description: "Prepare a direct ZEC transfer, then submit payment when policy allows or create a dashboard approval request.",
     inputSchema: {
       recipientName: z.string(),
       amountZec: z.string(),

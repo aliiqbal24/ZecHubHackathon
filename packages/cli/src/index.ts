@@ -359,9 +359,9 @@ async function collectDoctorChecks(flags: Flags): Promise<DoctorCheck[]> {
 
   if (configLoaded) {
     checks.push({
-      label: "Human approval invariant",
+      label: "Policy-gated payment authority",
       ok: true,
-      detail: "Agents can prepare a transfer; dashboard approval is still required before wallet submission."
+      detail: "Fresh installs require dashboard approval; user-enabled autonomy can submit only when policy checks pass."
     });
   }
 
@@ -871,8 +871,11 @@ async function runMcpPrepareSmoke(repoRoot: string): Promise<DoctorCheck> {
 
     return {
       label: "MCP prepare smoke",
-      ok: result.status === "awaiting_approval" && result.approvalUrl.includes("http://localhost:3000/?purchase="),
-      detail: `${result.status} ${result.approvalUrl}`,
+      ok:
+        result.status === "awaiting_approval" &&
+        typeof result.approvalUrl === "string" &&
+        result.approvalUrl.includes("http://localhost:3000/?purchase="),
+      detail: `${result.status} ${result.approvalUrl ?? ""}`.trim(),
       fix: "Run: npm run test:loop"
     };
   } catch (error) {
@@ -895,7 +898,7 @@ async function importMcpTools(repoRoot: string): Promise<{
   prepareDirectTransfer?: (args: Record<string, unknown>) => Promise<{
     purchaseId: string;
     status: string;
-    approvalUrl: string;
+    approvalUrl?: string;
   }>;
 }> {
   const toolsPath = path.join(repoRoot, "apps", "mcp-server", "dist", "tools.js");
@@ -904,7 +907,7 @@ async function importMcpTools(repoRoot: string): Promise<{
     prepareDirectTransfer?: (args: Record<string, unknown>) => Promise<{
       purchaseId: string;
       status: string;
-      approvalUrl: string;
+      approvalUrl?: string;
     }>;
   };
 }
@@ -914,7 +917,7 @@ function printLoopSummary(checks: DoctorCheck[]): void {
     console.log("");
     console.log("READY Shielded agentic transfer loop is ready.");
     console.log("Next: start Codex or Claude Code from this repo and ask it to prepare a shielded ZEC transfer.");
-    console.log("The agent can prepare the spend request; you still approve or reject it in the dashboard.");
+    console.log("Fresh installs require dashboard approval; autonomy can be enabled in the dashboard for clean under-limit spends.");
     return;
   }
 
@@ -1316,17 +1319,17 @@ function writeClaudeProjectConfig(): string {
 
 function agentInstructionsMarkdown(): string {
   return [
-    "Use the `agentzcash` MCP server for ZEC payment requests. Never approve, reject, submit, send, or otherwise complete a payment autonomously.",
+    "Use the `agentzcash` MCP server for ZEC payment requests. Submit payments only through AgentZcash policy-gated tools.",
     "",
     "For a direct shielded transfer:",
     "",
     "1. Call `prepare_direct_transfer` with recipient name, exact shielded-capable Zcash address, amount in ZEC, memo, purpose, evidence URLs, and verification notes.",
     "2. Use only shielded-capable recipient addresses that start with `u1`, `utest`, `zs`, or `ztestsapling`. Transparent-only `t1` and `t3` addresses are blocked.",
-    "3. Return the `approvalUrl` from the tool result to the user.",
-    "4. Tell the user to review and approve or reject the payment in the AgentZcash dashboard.",
-    "5. After the user says they approved it, call `get_agentzcash_state` and report whether the transfer is `pending_confirmation`, `receipted`, `payment_failed`, or `verification_failed`.",
+    "3. If the tool returns `approvalUrl`, give it to the user and tell them to review and approve or reject the payment in the AgentZcash dashboard.",
+    "4. If the tool returns `payment_submitted`, `pending_confirmation`, or `receipted`, report that AgentZcash submitted the payment under local policy.",
+    "5. Call `get_agentzcash_state` and report whether the transfer is `awaiting_approval`, `pending_confirmation`, `receipted`, `payment_failed`, or `verification_failed`.",
     "",
-    "If policy blocks the request, report the policy result and do not suggest bypassing dashboard approval."
+    "If policy blocks the request, report the policy result and do not suggest bypassing AgentZcash policy."
   ].join("\n");
 }
 
@@ -1361,7 +1364,7 @@ function checkAgentInstructions(root: string, target: AgentClientTarget): Doctor
     AGENTZCASH_INSTRUCTIONS_HEADING,
     "prepare_direct_transfer",
     "get_agentzcash_state",
-    "Never approve",
+    "policy-gated",
     "u1",
     "ztestsapling"
   ];

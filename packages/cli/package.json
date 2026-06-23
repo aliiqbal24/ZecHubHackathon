@@ -1,6 +1,6 @@
 {
   "name": "agentzcash",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
   "bin": {
@@ -14,9 +14,9 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@agentzcash/core": "0.1.0",
-    "@agentzcash/dashboard": "0.1.0",
-    "@agentzcash/mcp-server": "0.1.0"
+    "@agentzcash/core": "0.2.0",
+    "@agentzcash/dashboard": "0.2.0",
+    "@agentzcash/mcp-server": "0.2.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.2"

@@ -5,6 +5,7 @@ import {
   discoverVendor,
   evaluateDirectTransferPolicy,
   evaluateQuotePolicy,
+  executePaymentWithLock,
   loadConfig,
   loadState,
   refreshPendingDirectTransferConfirmations,
@@ -12,6 +13,7 @@ import {
   requestVendorQuote,
   saveState,
   upsertPurchase,
+  upsertVendorOrder,
   updateState,
   verifyReceipt,
   zecToZats,
@@ -26,7 +28,7 @@ export const toolDefinitions = [
   },
   {
     name: "request_quote",
-    description: "Request a ZEC-priced quote, reserve an order, and create a user approval request."
+    description: "Request a ZEC-priced quote, reserve an order, and submit payment when policy allows or create a user approval request."
   },
   {
     name: "prepare_purchase",
@@ -34,7 +36,7 @@ export const toolDefinitions = [
   },
   {
     name: "prepare_direct_transfer",
-    description: "Queue a direct ZEC transfer for dashboard approval. This never approves or sends payment."
+    description: "Prepare a direct ZEC transfer and submit payment when policy allows or create a user approval request."
   },
   {
     name: "claim_fulfillment",
@@ -64,12 +66,13 @@ export async function requestQuote(args: {
   const state = loadState();
   const policy = evaluateQuotePolicy(quote, config, state);
   const now = new Date().toISOString();
-  const approvalToken = createApprovalToken();
+  const needsDashboardApproval = policy.severity !== "blocked" && policy.requiresApproval;
+  const approvalToken = needsDashboardApproval ? createApprovalToken() : undefined;
 
   const purchase: Purchase = {
     id: `p_${randomUUID()}`,
     kind: "vendor_purchase",
-    status: policy.severity === "blocked" ? "policy_blocked" : "awaiting_approval",
+    status: policy.severity === "blocked" ? "policy_blocked" : needsDashboardApproval ? "awaiting_approval" : "policy_checked",
     createdAt: now,
     updatedAt: now,
     vendorUrl: quote.vendorUrl,
@@ -77,7 +80,7 @@ export async function requestQuote(args: {
     itemId: quote.itemId,
     itemTitle: quote.itemTitle,
     amountZec: quote.amountZec,
-    amountZats: zecToZats(quote.amountZec),
+    amountZats: safeZecToZats(quote.amountZec),
     fulfillmentType: quote.fulfillmentType,
     terms: quote.terms,
     requiredPii: quote.requiredPii,
@@ -88,11 +91,17 @@ export async function requestQuote(args: {
     payTo: order.payTo,
     memo: order.memo,
     expiresAt: order.expiresAt,
-    approvalTokenHash: hashApprovalToken(approvalToken)
+    approvalTokenHash: approvalToken ? hashApprovalToken(approvalToken) : undefined
   };
 
   updateState((draft) => {
     upsertPurchase(draft, purchase);
+    upsertVendorOrder(draft, {
+      orderId: order.orderId,
+      quote,
+      status: order.status,
+      createdAt: now
+    });
     appendActivity(draft, {
       kind: "quote",
       title: "Purchase requested by agent",
@@ -105,15 +114,30 @@ export async function requestQuote(args: {
       detail:
         policy.severity === "blocked"
           ? "Purchase cannot proceed without a policy change or override."
-          : "Purchase is waiting for user approval.",
+          : needsDashboardApproval
+            ? "Purchase is waiting for user approval."
+            : "Purchase is eligible for autonomous payment.",
       purchaseId: purchase.id
     });
   });
 
+  if (purchase.status === "policy_checked") {
+    const result = await executePaymentWithLock(purchase.id, { actor: "policy" });
+    return {
+      purchaseId: purchase.id,
+      status: result.ok ? result.purchase.status : result.purchase?.status ?? "payment_failed",
+      approvalUrl: undefined,
+      paymentResult: result,
+      quote,
+      order,
+      policy
+    };
+  }
+
   return {
     purchaseId: purchase.id,
     status: purchase.status,
-    approvalUrl: buildApprovalUrl(purchase.id, approvalToken),
+    approvalUrl: approvalToken ? buildApprovalUrl(purchase.id, approvalToken) : undefined,
     quote,
     order,
     policy
@@ -126,7 +150,8 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
   const state = loadState();
   const policy = evaluateDirectTransferPolicy(request, config, state);
   const now = new Date().toISOString();
-  const approvalToken = createApprovalToken();
+  const needsDashboardApproval = policy.severity !== "blocked" && policy.requiresApproval;
+  const approvalToken = needsDashboardApproval ? createApprovalToken() : undefined;
   const evidenceSummary = request.evidenceUrls.length
     ? request.evidenceUrls.join(", ")
     : request.agentVerificationNotes || "No external evidence supplied.";
@@ -134,7 +159,7 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
   const purchase: Purchase = {
     id: `p_${randomUUID()}`,
     kind: "direct_transfer",
-    status: policy.severity === "blocked" ? "policy_blocked" : "awaiting_approval",
+    status: policy.severity === "blocked" ? "policy_blocked" : needsDashboardApproval ? "awaiting_approval" : "policy_checked",
     createdAt: now,
     updatedAt: now,
     vendorUrl: "direct:zec",
@@ -142,7 +167,7 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
     itemId: "direct-transfer",
     itemTitle: `Direct transfer to ${request.recipientName}`,
     amountZec: request.amountZec,
-    amountZats: zecToZats(request.amountZec),
+    amountZats: safeZecToZats(request.amountZec),
     fulfillmentType: "service",
     terms: [
       request.purpose || "Direct ZEC transfer requested by agent.",
@@ -153,7 +178,7 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
       label: "Shielded ZEC",
       grade: "strong",
       leaks: ["Recipient address and amount are shown for approval."],
-      summary: "AgentZcash queues the transfer locally; only dashboard approval can submit it."
+      summary: "AgentZcash queues the transfer locally and may submit it only when policy allows."
     },
     policy,
     quoteId: `direct_${randomUUID()}`,
@@ -161,7 +186,7 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
     payTo: request.address,
     memo: request.memo,
     expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-    approvalTokenHash: hashApprovalToken(approvalToken),
+    approvalTokenHash: approvalToken ? hashApprovalToken(approvalToken) : undefined,
     directTransfer: request
   };
 
@@ -170,7 +195,9 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
     appendActivity(draft, {
       kind: "transfer",
       title: "Direct transfer requested by agent",
-      detail: `${request.amountZec} ZEC to ${request.recipientName} is waiting for user approval.`,
+      detail: needsDashboardApproval
+        ? `${request.amountZec} ZEC to ${request.recipientName} is waiting for user approval.`
+        : `${request.amountZec} ZEC to ${request.recipientName} is eligible for autonomous payment.`,
       purchaseId: purchase.id
     });
     appendActivity(draft, {
@@ -179,15 +206,36 @@ export async function prepareDirectTransfer(args: Record<string, unknown>) {
       detail:
         policy.severity === "blocked"
           ? "Transfer cannot proceed without a policy change or override."
-          : "Transfer is waiting for user approval.",
+          : needsDashboardApproval
+            ? "Transfer is waiting for user approval."
+            : "Transfer is eligible for autonomous payment.",
       purchaseId: purchase.id
     });
   });
 
+  if (purchase.status === "policy_checked") {
+    const result = await executePaymentWithLock(purchase.id, { actor: "policy" });
+    return {
+      purchaseId: purchase.id,
+      status: result.ok ? result.purchase.status : result.purchase?.status ?? "payment_failed",
+      approvalUrl: undefined,
+      paymentResult: result,
+      policy,
+      transfer: {
+        recipientName: request.recipientName,
+        address: request.address,
+        amountZec: request.amountZec,
+        memo: request.memo,
+        purpose: request.purpose,
+        evidenceSummary
+      }
+    };
+  }
+
   return {
     purchaseId: purchase.id,
     status: purchase.status,
-    approvalUrl: buildApprovalUrl(purchase.id, approvalToken),
+    approvalUrl: approvalToken ? buildApprovalUrl(purchase.id, approvalToken) : undefined,
     policy,
     transfer: {
       recipientName: request.recipientName,
@@ -230,7 +278,12 @@ export async function preparePurchase(args: { purchaseId: string }) {
       purchase.kind === "direct_transfer" && purchase.directTransfer
         ? evaluateDirectTransferPolicy(purchase.directTransfer, config, state)
         : evaluateQuotePolicy(purchaseToQuote(purchase), config, state);
-    purchase.status = purchase.policy.severity === "blocked" ? "policy_blocked" : "awaiting_approval";
+    purchase.status =
+      purchase.policy.severity === "blocked"
+        ? "policy_blocked"
+        : purchase.policy.requiresApproval
+          ? "awaiting_approval"
+          : "policy_checked";
     purchase.updatedAt = new Date().toISOString();
     updated = purchase;
     appendActivity(state, {
@@ -242,6 +295,14 @@ export async function preparePurchase(args: { purchaseId: string }) {
   });
 
   return updated;
+}
+
+function safeZecToZats(value: string): number {
+  try {
+    return zecToZats(value);
+  } catch {
+    return 0;
+  }
 }
 
 export async function claimFulfillment(args: { purchaseId: string }) {

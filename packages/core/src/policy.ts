@@ -21,7 +21,7 @@ export function evaluateQuotePolicy(
   config: AgentZcashConfig,
   state: AgentZcashState
 ): PolicyResult {
-  const amountZats = zecToZats(quote.amountZec);
+  const amountZats = safeZecToZats(quote.amountZec);
   const perTxLimit = zecToZats(config.spending.perTransactionZec);
   const dailyLimit = zecToZats(config.spending.dailyZec);
   const monthlyLimit = zecToZats(config.spending.monthlyZec);
@@ -30,7 +30,7 @@ export function evaluateQuotePolicy(
   const memoBytes = Buffer.byteLength(quote.memo, "utf8");
 
   const checks: PolicyCheck[] = [
-    amountZats > 0
+    amountZats !== undefined && amountZats > 0
       ? {
           id: "amount-positive",
           label: "Amount",
@@ -41,9 +41,9 @@ export function evaluateQuotePolicy(
           id: "amount-positive",
           label: "Amount",
           severity: "blocked",
-          detail: "Quote amount must be greater than zero."
+          detail: "Quote amount must be a positive ZEC decimal."
         },
-    amountZats <= perTxLimit
+    amountZats !== undefined && amountZats <= perTxLimit
       ? {
           id: "per-transaction",
           label: "Per-transaction limit",
@@ -53,10 +53,10 @@ export function evaluateQuotePolicy(
       : {
           id: "per-transaction",
           label: "Per-transaction limit",
-          severity: "blocked",
+          severity: amountZats === undefined ? "blocked" : "warn",
           detail: `${quote.amountZec} ZEC exceeds the ${config.spending.perTransactionZec} ZEC limit.`
         },
-    state.wallet.spentTodayZats + amountZats <= dailyLimit
+    amountZats !== undefined && state.wallet.spentTodayZats + amountZats <= dailyLimit
       ? {
           id: "daily",
           label: "Daily budget",
@@ -66,10 +66,10 @@ export function evaluateQuotePolicy(
       : {
           id: "daily",
           label: "Daily budget",
-          severity: "blocked",
+          severity: amountZats === undefined ? "blocked" : "warn",
           detail: "This purchase would exceed today's agent budget."
         },
-    state.wallet.spentMonthZats + amountZats <= monthlyLimit
+    amountZats !== undefined && state.wallet.spentMonthZats + amountZats <= monthlyLimit
       ? {
           id: "monthly",
           label: "Monthly budget",
@@ -79,7 +79,7 @@ export function evaluateQuotePolicy(
       : {
           id: "monthly",
           label: "Monthly budget",
-          severity: "blocked",
+          severity: amountZats === undefined ? "blocked" : "warn",
           detail: "This purchase would exceed the monthly agent budget."
         },
     trusted
@@ -171,14 +171,14 @@ export function evaluateDirectTransferPolicy(
   config: AgentZcashConfig,
   state: AgentZcashState
 ): PolicyResult {
-  const amountZats = zecToZats(request.amountZec);
+  const amountZats = safeZecToZats(request.amountZec);
   const perTxLimit = zecToZats(config.spending.perTransactionZec);
   const dailyLimit = zecToZats(config.spending.dailyZec);
   const monthlyLimit = zecToZats(config.spending.monthlyZec);
   const memoBytes = Buffer.byteLength(request.memo, "utf8");
 
   const checks: PolicyCheck[] = [
-    amountZats > 0
+    amountZats !== undefined && amountZats > 0
       ? {
           id: "amount-positive",
           label: "Amount",
@@ -189,9 +189,9 @@ export function evaluateDirectTransferPolicy(
           id: "amount-positive",
           label: "Amount",
           severity: "blocked",
-          detail: "Transfer amount must be greater than zero."
+          detail: "Transfer amount must be a positive ZEC decimal."
         },
-    amountZats <= perTxLimit
+    amountZats !== undefined && amountZats <= perTxLimit
       ? {
           id: "per-transaction",
           label: "Per-transaction limit",
@@ -201,10 +201,10 @@ export function evaluateDirectTransferPolicy(
       : {
           id: "per-transaction",
           label: "Per-transaction limit",
-          severity: "blocked",
+          severity: amountZats === undefined ? "blocked" : "warn",
           detail: `${request.amountZec} ZEC exceeds the ${config.spending.perTransactionZec} ZEC limit.`
         },
-    state.wallet.spentTodayZats + amountZats <= dailyLimit
+    amountZats !== undefined && state.wallet.spentTodayZats + amountZats <= dailyLimit
       ? {
           id: "daily",
           label: "Daily budget",
@@ -214,10 +214,10 @@ export function evaluateDirectTransferPolicy(
       : {
           id: "daily",
           label: "Daily budget",
-          severity: "blocked",
+          severity: amountZats === undefined ? "blocked" : "warn",
           detail: "This transfer would exceed today's agent budget."
         },
-    state.wallet.spentMonthZats + amountZats <= monthlyLimit
+    amountZats !== undefined && state.wallet.spentMonthZats + amountZats <= monthlyLimit
       ? {
           id: "monthly",
           label: "Monthly budget",
@@ -227,7 +227,7 @@ export function evaluateDirectTransferPolicy(
       : {
           id: "monthly",
           label: "Monthly budget",
-          severity: "blocked",
+          severity: amountZats === undefined ? "blocked" : "warn",
           detail: "This transfer would exceed the monthly agent budget."
         },
     looksLikeShieldedZcashAddress(request.address)
@@ -286,17 +286,27 @@ export function evaluateDirectTransferPolicy(
       id: "approval",
       label: "Human approval",
       severity: "pass",
-      detail: "Final user confirmation is required before payment."
+      detail: config.approval.requireEveryPayment
+        ? "Final user confirmation is required before payment."
+        : "Autonomous payment is allowed by policy."
     }
   ];
 
   return {
     severity: mostSevere(checks),
-    requiresApproval: true,
+    requiresApproval: config.approval.requireEveryPayment || checks.some((check) => check.severity !== "pass"),
     checks
   };
 }
 
 export function canApprovePurchase(purchase: Purchase): boolean {
   return purchase.status === "awaiting_approval" || purchase.status === "policy_checked";
+}
+
+function safeZecToZats(value: string): number | undefined {
+  try {
+    return zecToZats(value);
+  } catch {
+    return undefined;
+  }
 }

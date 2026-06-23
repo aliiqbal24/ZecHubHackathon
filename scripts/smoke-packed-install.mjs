@@ -126,6 +126,8 @@ function smokeConfig() {
 
 function directTransferSmokeModule() {
   return `
+import fs from "node:fs";
+import path from "node:path";
 import { prepareDirectTransfer, toolDefinitions } from "@agentzcash/mcp-server/dist/tools.js";
 
 const toolNames = toolDefinitions.map((tool) => tool.name);
@@ -153,5 +155,83 @@ if (!result.approvalUrl.includes("purchase=") || !result.approvalUrl.includes("a
 }
 
 console.log("Direct transfer prepare smoke passed.");
+
+const fakeWallet = path.join(process.cwd(), "fake-wallet.mjs");
+const sendCountFile = path.join(process.cwd(), "send-count.txt");
+fs.writeFileSync(sendCountFile, "0");
+fs.writeFileSync(fakeWallet, [
+  "import fs from 'node:fs';",
+  "const mode = process.argv[2];",
+  "if (mode === 'balance') {",
+  "  console.log('1.00000000');",
+  "} else if (mode === 'send') {",
+  "  const countFile = process.env.AGENTZCASH_FAKE_SEND_COUNT_FILE;",
+  "  const count = Number(fs.readFileSync(countFile, 'utf8').trim());",
+  "  fs.writeFileSync(countFile, String(count + 1));",
+  "  console.log('submitted txid_release_smoke_1234567890abcdef');",
+  "} else if (mode === 'tx') {",
+  "  console.log(JSON.stringify({ confirmations: 1, height: 123 }));",
+  "} else {",
+  "  process.exit(1);",
+  "}",
+  ""
+].join("\\n"));
+
+process.env.AGENTZCASH_FAKE_SEND_COUNT_FILE = sendCountFile;
+fs.writeFileSync(process.env.AGENTZCASH_STATE_PATH, JSON.stringify({ purchases: [], activity: [], vendorOrders: [] }, null, 2));
+fs.writeFileSync(process.env.AGENTZCASH_CONFIG, [
+  "agent:",
+  "  name: Release Smoke",
+  "  walletMode: external-cli",
+  "  walletAddress: u1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+  \`  externalCliCommand: \${JSON.stringify(\`\${JSON.stringify(process.execPath)} "\${fakeWallet.replaceAll("\\\\", "/")}" send {to} {amount} {memo}\`)}\`,
+  \`  externalCliBalanceCommand: \${JSON.stringify(\`\${JSON.stringify(process.execPath)} "\${fakeWallet.replaceAll("\\\\", "/")}" balance\`)}\`,
+  \`  externalCliTxCheckCommand: \${JSON.stringify(\`\${JSON.stringify(process.execPath)} "\${fakeWallet.replaceAll("\\\\", "/")}" tx {txId}\`)}\`,
+  "",
+  "spending:",
+  "  perTransactionZec: \\"0.05\\"",
+  "  dailyZec: \\"0.15\\"",
+  "  monthlyZec: \\"1.00\\"",
+  "",
+  "approval:",
+  "  requireEveryPayment: false",
+  "  allowOneTimeOverride: true",
+  "",
+  "vendors:",
+  "  allowUnknownVendors: true",
+  "  trusted: []",
+  "",
+  "privacy:",
+  "  showPrivacyLabel: true",
+  "",
+  "verification:",
+  "  mode: external-cli",
+  "  minConfirmations: 1",
+  "",
+  "shippingProfiles: []",
+  ""
+].join("\\n"));
+
+const autoResult = await prepareDirectTransfer({
+  recipientName: "Smoke Recipient",
+  amountZec: "0.001",
+  address: "u1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq",
+  memo: "release auto smoke",
+  purpose: "Release autonomous smoke test",
+  evidenceUrls: ["https://example.com/release-smoke"],
+  agentVerificationNotes: "Release smoke fixture."
+});
+
+if (autoResult.status !== "receipted") {
+  throw new Error(\`Expected receipted autonomous transfer, got \${autoResult.status}\`);
+}
+if (autoResult.approvalUrl !== undefined) {
+  throw new Error(\`Autonomous transfer unexpectedly returned approval URL: \${autoResult.approvalUrl}\`);
+}
+if (fs.readFileSync(sendCountFile, "utf8") !== "1") {
+  throw new Error("Autonomous transfer did not send exactly once.");
+}
+
+console.log("Autonomous direct transfer smoke passed.");
 `;
 }

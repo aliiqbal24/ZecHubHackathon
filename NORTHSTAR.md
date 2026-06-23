@@ -22,7 +22,7 @@ An agent may:
 - Request quotes or prepare direct transfers.
 - Check local spending policy.
 - Present amount, address, memo, privacy impact, and evidence.
-- Queue a payment for human approval.
+- Queue a payment for approval or policy-gated autonomous submission.
 
 An agent may not:
 
@@ -86,7 +86,7 @@ Zcash has strong privacy properties, but private money still needs usable contro
 - Private by default.
 - Explicit about what is being paid.
 - Hard to accidentally misuse.
-- Compatible with human approval.
+- Compatible with human approval and user-enabled policy-gated autonomy.
 - Auditable locally without publishing unnecessary personal data.
 
 AgentZcash should make Zcash feel like the natural payment rail for autonomous and semi-autonomous agents.
@@ -99,7 +99,7 @@ AgentZcash should be built around five boundaries.
 
 Agents interact through MCP tools. They can discover vendors, request quotes, prepare payments, and inspect state.
 
-The approval endpoint must stay outside autonomous agent control.
+The approval endpoint must stay outside autonomous agent control; autonomous submission happens only inside AgentZcash policy-gated payment tools.
 
 ### 2. Recipient Verification
 
@@ -122,7 +122,7 @@ Every proposed spend must pass through local policy:
 - Maximum per month.
 - Trusted recipient or vendor allowlist.
 - Unknown recipient warnings.
-- Required human approval.
+- Required human approval by default, with optional autonomous submission below configured limits when all checks pass.
 - Optional one-time override with reason.
 
 Policy should be readable and editable in `agentzcash.config.yaml`.
@@ -151,7 +151,7 @@ The dashboard is the user's control room. It should make the approval decision o
 
 ## Safety Principles
 
-- No silent sends.
+- No sends outside AgentZcash policy-gated tools.
 - No hidden recipient changes.
 - No approval by prompt injection.
 - No payment to addresses without visible evidence.

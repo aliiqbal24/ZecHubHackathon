@@ -10,6 +10,7 @@ import {
   Gauge,
   KeyRound,
   RefreshCw,
+  Save,
   ShieldCheck,
   X
 } from "lucide-react";
@@ -42,6 +43,13 @@ export function DashboardClient() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [approvalContext, setApprovalContext] = useState<{ purchaseId?: string; approvalToken?: string }>({});
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [settings, setSettings] = useState({
+    requireEveryPayment: true,
+    perTransactionZec: "",
+    dailyZec: "",
+    monthlyZec: ""
+  });
 
   const refresh = useCallback(async () => {
     const response = await fetch("/api/state", { cache: "no-store" });
@@ -63,6 +71,16 @@ export function DashboardClient() {
       approvalToken: params.get("approvalToken") ?? undefined
     });
   }, []);
+
+  useEffect(() => {
+    if (!payload || settingsDirty) return;
+    setSettings({
+      requireEveryPayment: payload.config.approval.requireEveryPayment,
+      perTransactionZec: payload.config.spending.perTransactionZec,
+      dailyZec: payload.config.spending.dailyZec,
+      monthlyZec: payload.config.spending.monthlyZec
+    });
+  }, [payload, settingsDirty]);
 
   const pendingPurchases = useMemo(
     () =>
@@ -127,6 +145,28 @@ export function DashboardClient() {
     );
   }
 
+  async function saveSettings() {
+    setBusy("settings");
+    setError(null);
+    try {
+      const response = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(settings)
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok || json.ok === false) {
+        throw new Error(json.error ?? "Settings update failed");
+      }
+      setSettingsDirty(false);
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Settings update failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (!payload) {
     return (
       <main className="shell">
@@ -146,7 +186,11 @@ export function DashboardClient() {
           <h1>Agent spending firewall</h1>
         </div>
         <div className="top-actions">
-          <StatusPill icon={<ShieldCheck size={14} />} label="Human approval" tone="good" />
+          <StatusPill
+            icon={<ShieldCheck size={14} />}
+            label={payload.config.approval.requireEveryPayment ? "Approval required" : "Autonomous below limits"}
+            tone={payload.config.approval.requireEveryPayment ? "good" : "warn"}
+          />
           <StatusPill icon={<KeyRound size={14} />} label={payload.state.wallet.mode} tone="neutral" />
           <button className="icon-button" onClick={() => void refresh()} aria-label="Refresh dashboard">
             <RefreshCw size={16} />
@@ -211,7 +255,15 @@ export function DashboardClient() {
       <section className="lower-grid">
         <ActivityPanel events={payload.state.activity} />
         <ReceiptsPanel purchases={receipts} />
-        <PolicyPanel configText={payload.configText} config={payload.config} />
+        <PolicyPanel
+          configText={payload.configText}
+          config={payload.config}
+          settings={settings}
+          busy={busy === "settings"}
+          onSettingsChange={setSettings}
+          onSettingsDirty={() => setSettingsDirty(true)}
+          onSaveSettings={() => void saveSettings()}
+        />
       </section>
     </main>
   );
@@ -411,12 +463,98 @@ function ReceiptsPanel({ purchases }: { purchases: Purchase[] }) {
   );
 }
 
-function PolicyPanel({ configText, config }: { configText: string; config: AgentZcashConfig }) {
+function PolicyPanel({
+  configText,
+  config,
+  settings,
+  busy,
+  onSettingsChange,
+  onSettingsDirty,
+  onSaveSettings
+}: {
+  configText: string;
+  config: AgentZcashConfig;
+  settings: {
+    requireEveryPayment: boolean;
+    perTransactionZec: string;
+    dailyZec: string;
+    monthlyZec: string;
+  };
+  busy: boolean;
+  onSettingsChange: React.Dispatch<
+    React.SetStateAction<{
+      requireEveryPayment: boolean;
+      perTransactionZec: string;
+      dailyZec: string;
+      monthlyZec: string;
+    }>
+  >;
+  onSettingsDirty: () => void;
+  onSaveSettings: () => void;
+}) {
   return (
     <section className="panel">
       <div className="panel-heading compact">
         <h2>Policy</h2>
-        <span className="status-tag neutral">{config.spending.perTransactionZec} ZEC max</span>
+        <span className="status-tag neutral">
+          {config.approval.requireEveryPayment ? "Approval required" : "Autonomous below limits"}
+        </span>
+      </div>
+      <div className="settings-form">
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={!settings.requireEveryPayment}
+            onChange={(event) => {
+              onSettingsDirty();
+              onSettingsChange((current) => ({
+                ...current,
+                requireEveryPayment: !event.target.checked
+              }));
+            }}
+          />
+          <span>Autonomous payments</span>
+        </label>
+        <label>
+          <span>Per transaction</span>
+          <input
+            inputMode="decimal"
+            pattern="\\d+(\\.\\d{1,8})?"
+            value={settings.perTransactionZec}
+            onChange={(event) => {
+              onSettingsDirty();
+              onSettingsChange((current) => ({ ...current, perTransactionZec: event.target.value }));
+            }}
+          />
+        </label>
+        <label>
+          <span>Daily</span>
+          <input
+            inputMode="decimal"
+            pattern="\\d+(\\.\\d{1,8})?"
+            value={settings.dailyZec}
+            onChange={(event) => {
+              onSettingsDirty();
+              onSettingsChange((current) => ({ ...current, dailyZec: event.target.value }));
+            }}
+          />
+        </label>
+        <label>
+          <span>Monthly</span>
+          <input
+            inputMode="decimal"
+            pattern="\\d+(\\.\\d{1,8})?"
+            value={settings.monthlyZec}
+            onChange={(event) => {
+              onSettingsDirty();
+              onSettingsChange((current) => ({ ...current, monthlyZec: event.target.value }));
+            }}
+          />
+        </label>
+        <button className="primary-button" onClick={onSaveSettings} disabled={busy}>
+          <Save size={15} />
+          Save
+        </button>
       </div>
       <pre className="config-preview">{configText}</pre>
     </section>

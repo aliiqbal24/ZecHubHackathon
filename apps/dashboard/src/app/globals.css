@@ -28,6 +28,7 @@ body {
 }
 
 button,
+input,
 textarea {
   font: inherit;
 }
@@ -328,6 +329,60 @@ textarea {
 
 textarea:focus {
   border-color: rgba(244, 183, 40, 0.7);
+}
+
+input {
+  color: var(--text);
+}
+
+.settings-form {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.settings-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.settings-form input[type="text"],
+.settings-form input:not([type]) {
+  width: 100%;
+}
+
+.settings-form input[inputmode="decimal"] {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  background: #11150f;
+  padding: 0 10px;
+}
+
+.settings-form input[inputmode="decimal"]:focus {
+  border-color: rgba(244, 183, 40, 0.7);
+}
+
+.toggle-row {
+  display: flex !important;
+  grid-template-columns: unset;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #12160f;
+  padding: 10px;
+}
+
+.toggle-row input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--zec);
 }
 
 .quick-actions {

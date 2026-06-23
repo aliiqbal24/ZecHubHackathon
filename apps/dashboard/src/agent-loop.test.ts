@@ -120,6 +120,49 @@ describe("agentic shielded transfer loop", () => {
     expect(purchase?.paymentReceipt?.confirmedAt).toBeDefined();
   });
 
+  it("auto-submits an eligible direct transfer when autonomy is enabled", async () => {
+    const { sendCountFile } = setupTempAgentHome({ txStatus: "1", requireEveryPayment: false });
+
+    const prepared = await prepareDirectTransfer({
+      recipientName: "Alice",
+      amountZec: "0.01",
+      address: "u1recipient0000000000000000000000000000000000000000",
+      memo: "autonomous test transfer",
+      purpose: "Autonomous transfer smoke test",
+      evidenceUrls: ["https://example.com/invoice"],
+      agentVerificationNotes: "Address and amount copied from the invoice."
+    });
+
+    expect(prepared.status).toBe("receipted");
+    expect(prepared.approvalUrl).toBeUndefined();
+    expect(fs.readFileSync(sendCountFile, "utf8")).toBe("1");
+
+    const purchase = loadState().purchases.find((item) => item.id === prepared.purchaseId);
+    expect(purchase?.payment?.txId).toBe("txid_direct_1234567890abcdef");
+    expect(purchase?.paymentReceipt).toMatchObject({
+      confirmationStatus: "confirmed",
+      confirmations: 1
+    });
+  });
+
+  it("returns an approval URL for over-threshold autonomous transfers without sending", async () => {
+    const { sendCountFile } = setupTempAgentHome({ txStatus: "1", requireEveryPayment: false });
+
+    const prepared = await prepareDirectTransfer({
+      recipientName: "Alice",
+      amountZec: "0.06",
+      address: "u1recipient0000000000000000000000000000000000000000",
+      memo: "over threshold transfer",
+      purpose: "Over-threshold approval smoke test",
+      evidenceUrls: ["https://example.com/invoice"],
+      agentVerificationNotes: "Address and amount copied from the invoice."
+    });
+
+    expect(prepared.status).toBe("awaiting_approval");
+    expect(prepared.approvalUrl).toContain("http://localhost:3000/?purchase=");
+    expect(fs.readFileSync(sendCountFile, "utf8")).toBe("0");
+  });
+
   it("requires the approval URL token and does not send twice on repeated approval", async () => {
     const { sendCountFile } = setupTempAgentHome({ txStatus: "1" });
     const prepared = await prepareDirectTransfer({
@@ -207,25 +250,20 @@ describe("agentic shielded transfer loop", () => {
     });
 
     expect(prepared.status).toBe("policy_blocked");
-
-    const response = await approvePurchase(
-      new NextRequest(`http://localhost/api/purchases/${prepared.purchaseId}/approve`, {
-        method: "POST",
-        headers: { "content-type": "application/json", origin: "http://localhost" },
-        body: JSON.stringify({
-          ...approvalBody(prepared.approvalUrl),
-          overrideReason: "Attempted override"
-        })
-      }),
-      { params: Promise.resolve({ id: prepared.purchaseId }) }
-    );
-
-    expect(response.status).toBe(409);
+    expect(prepared.approvalUrl).toBeUndefined();
     expect(fs.readFileSync(sendCountFile, "utf8")).toBe("0");
   });
 });
 
-function setupTempAgentHome({ txStatus, sendDelayMs = 0 }: { txStatus: "1" | "not_found"; sendDelayMs?: number }): {
+function setupTempAgentHome({
+  txStatus,
+  sendDelayMs = 0,
+  requireEveryPayment = true
+}: {
+  txStatus: "1" | "not_found";
+  sendDelayMs?: number;
+  requireEveryPayment?: boolean;
+}): {
   home: string;
   confirmationFile: string;
   sendCountFile: string;
@@ -285,7 +323,7 @@ function setupTempAgentHome({ txStatus, sendDelayMs = 0 }: { txStatus: "1" | "no
       '  monthlyZec: "1.00"',
       "",
       "approval:",
-      "  requireEveryPayment: true",
+      `  requireEveryPayment: ${requireEveryPayment ? "true" : "false"}`,
       "  allowOneTimeOverride: true",
       "",
       "vendors:",
@@ -313,7 +351,10 @@ function setupTempAgentHome({ txStatus, sendDelayMs = 0 }: { txStatus: "1" | "no
   return { home: tempDir, confirmationFile, sendCountFile };
 }
 
-function approvalBody(approvalUrl: string): { approvalToken: string } {
+function approvalBody(approvalUrl: string | undefined): { approvalToken: string } {
+  if (!approvalUrl) {
+    throw new Error("Approval URL is missing.");
+  }
   const token = new URL(approvalUrl).searchParams.get("approvalToken");
   if (!token) {
     throw new Error(`Approval URL is missing approvalToken: ${approvalUrl}`);

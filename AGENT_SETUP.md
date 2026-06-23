@@ -75,7 +75,7 @@ Tools:
 - `claim_fulfillment`
 - `get_agentzcash_state`
 
-Approval is intentionally not exposed as an autonomous MCP tool. The agent can request and prepare a purchase or direct transfer; the dashboard user approves payment.
+Approval is intentionally not exposed as a standalone MCP tool. The agent can request and prepare a purchase or direct transfer; AgentZcash either returns a dashboard approval URL or submits only when user-enabled autonomy and policy allow it.
 
 ## HTTP Tool Calls
 
@@ -93,7 +93,7 @@ curl -X POST http://localhost:3010/mcp/call ^
   -d "{\"name\":\"request_quote\",\"args\":{\"vendorUrl\":\"https://vendor.example\",\"itemId\":\"service-plan\",\"options\":{\"prompt\":\"Request the quoted service after showing exact ZEC terms.\"}}}"
 ```
 
-Then open the dashboard and approve or reject the purchase.
+Then open the dashboard and approve or reject the purchase if the tool returned an approval URL.
 
 Prepare a direct transfer:
 
@@ -108,7 +108,7 @@ curl -X POST http://localhost:3010/mcp/call ^
 Use this instruction with an agent connected to AgentZcash:
 
 ```text
-You can prepare direct ZEC transfers and request ZEC purchases through AgentZcash, but you may not approve payment. For direct transfers, use only shielded-capable recipient addresses that start with u1, utest, zs, or ztestsapling. Include recipient name, exact address, amount, memo, purpose, evidence URLs, and your verification notes. After AgentZcash creates a spend request, tell the user to review the dashboard approval screen. After the user approves, call get_agentzcash_state and report whether the transfer is pending confirmation or receipted.
+You can prepare direct ZEC transfers and request ZEC purchases through AgentZcash. Submit payments only through AgentZcash policy-gated tools. For direct transfers, use only shielded-capable recipient addresses that start with u1, utest, zs, or ztestsapling. Include recipient name, exact address, amount, memo, purpose, evidence URLs, and your verification notes. If AgentZcash returns an approval URL, tell the user to review the dashboard approval screen. Call get_agentzcash_state and report whether the transfer is awaiting approval, pending confirmation, receipted, or failed.
 ```
 
 ## Loop Smoke Test

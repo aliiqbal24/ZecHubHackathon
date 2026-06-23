@@ -60,4 +60,10 @@ export function readConfigText(): string {
   return fs.readFileSync(getConfigPath(), "utf8");
 }
 
+export function saveConfig(config: AgentZcashConfig): void {
+  const file = getConfigPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, YAML.stringify(config));
+}
+
 export { getAgentZcashHome, getConfigPath, getManagedWalletDir, getStatePath };

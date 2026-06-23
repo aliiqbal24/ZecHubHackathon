@@ -1,6 +1,6 @@
 {
   "name": "@agentzcash/dashboard",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": false,
   "type": "module",
   "files": [
@@ -17,7 +17,7 @@
     "start": "node -e \"process.env.HOSTNAME=process.env.HOSTNAME||'127.0.0.1'; import('./.next/standalone/apps/dashboard/server.js')\""
   },
   "dependencies": {
-    "@agentzcash/core": "0.1.0",
+    "@agentzcash/core": "0.2.0",
     "lucide-react": "^0.562.0",
     "next": "16.2.9",
     "react": "19.2.7",

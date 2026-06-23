@@ -1,6 +1,6 @@
 # AgentZcash
 
-AgentZcash is a local approval and wallet-control layer for private, policy-governed AI agent ZEC payments. An agent can queue a direct transfer or request a purchase from a vendor that exposes a ZEC Harness, while AgentZcash checks policy, shows the exact spend and conditions, requires human approval, sends payment through the managed local Zingo wallet, and stores a receipt.
+AgentZcash is a local approval and wallet-control layer for private, policy-governed AI agent ZEC payments. An agent can prepare a direct transfer or request a purchase from a vendor that exposes a ZEC Harness, while AgentZcash checks policy, shows the exact spend and conditions, requires dashboard approval by default, can submit clean under-limit payments only after the user enables autonomy, sends through the managed local Zingo wallet, and stores a receipt.
 
 ## What Is Implemented
 
@@ -58,7 +58,7 @@ Check whether this computer is ready for the full agent loop:
 npx agentzcash doctor --loop
 ```
 
-The loop doctor checks wallet readiness, project MCP config, build outputs, the MCP tool surface, and a no-funds direct-transfer prepare smoke test. It does not approve or submit a payment.
+The loop doctor checks wallet readiness, project MCP config, build outputs, the MCP tool surface, and a no-funds direct-transfer prepare smoke test. Fresh installs remain dashboard-approval only.
 
 Check whether the current checkout/install has the built runtime pieces needed for repo-mode startup:
 
@@ -132,15 +132,15 @@ Available tools:
 - `claim_fulfillment`
 - `get_agentzcash_state`
 
-The dashboard approval endpoint is intentionally not exposed as an autonomous MCP tool. Agents can prepare payment intents; humans approve payments.
+The dashboard approval endpoint is intentionally not exposed as an MCP tool. Agents can prepare payment intents; AgentZcash submits only through local policy, with dashboard approval required by default and for any warning or limit breach.
 
 ## Shielded Agentic Transfer Loop
 
 1. User runs `npx agentzcash init`, backs up the seed, and funds the printed wallet address.
 2. User starts Codex or Claude Code from the repo root with AgentZcash MCP enabled.
 3. Agent calls `prepare_direct_transfer` with a shielded-capable recipient address (`u1`, `utest`, `zs`, or `ztestsapling`), amount, memo, purpose, and verification evidence.
-4. Agent returns the dashboard approval URL.
-5. User reviews the dashboard and approves or rejects the payment.
+4. Agent returns the dashboard approval URL when approval is required, or a submitted/pending/receipted status when autonomy is enabled and all checks pass.
+5. User reviews the dashboard and approves or rejects any approval-required payment.
 6. Agent calls `get_agentzcash_state` to check whether the submitted transaction is still `pending_confirmation` or has reached the configured confirmation count and become `receipted`.
 
 To verify this loop without real funds or a live wallet, run:

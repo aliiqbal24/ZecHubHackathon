@@ -51,9 +51,10 @@ describe("policy", () => {
     expect(result.requiresApproval).toBe(true);
   });
 
-  it("blocks over the per-transaction limit", () => {
+  it("requires approval over the per-transaction limit", () => {
     const result = evaluateQuotePolicy(quote({ amountZec: "0.06" }), config, state);
-    expect(result.severity).toBe("blocked");
+    expect(result.severity).toBe("warn");
+    expect(result.requiresApproval).toBe(true);
   });
 
   it("warns for unknown vendors when allowed", () => {
@@ -79,6 +80,63 @@ describe("policy", () => {
     expect(result.severity).toBe("pass");
     expect(result.requiresApproval).toBe(true);
     expect(result.checks.some((check) => check.id === "vendor")).toBe(false);
+  });
+
+  it("allows autonomous direct transfers only when enabled and every check passes", () => {
+    const result = evaluateDirectTransferPolicy(
+      {
+        recipientName: "Alice",
+        amountZec: "0.01",
+        address: "u1recipient0000000000000000000000000000000000000000",
+        memo: "thanks",
+        purpose: "Test payment",
+        evidenceUrls: ["https://example.com/invoice"],
+        agentVerificationNotes: ""
+      },
+      { ...config, approval: { ...config.approval, requireEveryPayment: false } },
+      state
+    );
+
+    expect(result.severity).toBe("pass");
+    expect(result.requiresApproval).toBe(false);
+  });
+
+  it("requires approval for autonomous direct transfers with warnings", () => {
+    const result = evaluateDirectTransferPolicy(
+      {
+        recipientName: "Alice",
+        amountZec: "0.01",
+        address: "u1recipient0000000000000000000000000000000000000000",
+        memo: "thanks",
+        purpose: "",
+        evidenceUrls: [],
+        agentVerificationNotes: ""
+      },
+      { ...config, approval: { ...config.approval, requireEveryPayment: false } },
+      state
+    );
+
+    expect(result.severity).toBe("warn");
+    expect(result.requiresApproval).toBe(true);
+  });
+
+  it("blocks malformed direct transfer amounts", () => {
+    const result = evaluateDirectTransferPolicy(
+      {
+        recipientName: "Alice",
+        amountZec: "abc",
+        address: "u1recipient0000000000000000000000000000000000000000",
+        memo: "thanks",
+        purpose: "Test payment",
+        evidenceUrls: ["https://example.com/invoice"],
+        agentVerificationNotes: ""
+      },
+      { ...config, approval: { ...config.approval, requireEveryPayment: false } },
+      state
+    );
+
+    expect(result.severity).toBe("blocked");
+    expect(result.requiresApproval).toBe(true);
   });
 
   it("blocks a direct transfer with malformed address", () => {
