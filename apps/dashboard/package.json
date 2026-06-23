@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@agentzcash/core": "0.2.0",
+    "geist": "^1.7.2",
     "lucide-react": "^0.562.0",
     "next": "16.2.9",
     "react": "19.2.7",
