@@ -23,6 +23,11 @@ interface DashboardPayload {
   state: AgentZcashState;
 }
 
+interface DashboardErrorPayload {
+  error?: unknown;
+  setupCommand?: unknown;
+}
+
 function zec(zats: number): string {
   return `${(zats / 100_000_000).toFixed(4).replace(/0+$/, "").replace(/\.$/, "")} ZEC`;
 }
@@ -52,8 +57,21 @@ export function DashboardClient() {
   });
 
   const refresh = useCallback(async () => {
-    const response = await fetch("/api/state", { cache: "no-store" });
-    setPayload(await response.json());
+    try {
+      const response = await fetch("/api/state", { cache: "no-store" });
+      const json = (await response.json().catch(() => ({}))) as DashboardPayload | DashboardErrorPayload;
+      if (!response.ok) {
+        const message =
+          "error" in json && typeof json.error === "string"
+            ? json.error
+            : `Dashboard request failed (${response.status}).`;
+        throw new Error(message);
+      }
+      setPayload(json as DashboardPayload);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Dashboard request failed.");
+    }
   }, []);
 
   useEffect(() => {
@@ -170,10 +188,21 @@ export function DashboardClient() {
   if (!payload) {
     return (
       <main className="shell">
-        <div className="loading-panel">
-          <RefreshCw className="spin" size={18} />
-          Loading AgentZcash
-        </div>
+        {error ? (
+          <div className="setup-panel">
+            <AlertTriangle size={18} />
+            <div>
+              <h1>AgentZcash setup required</h1>
+              <p>{error}</p>
+              <code>npx agentzcash init</code>
+            </div>
+          </div>
+        ) : (
+          <div className="loading-panel">
+            <RefreshCw className="spin" size={18} />
+            Loading AgentZcash
+          </div>
+        )}
       </main>
     );
   }
