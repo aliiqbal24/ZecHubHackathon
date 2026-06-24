@@ -235,6 +235,26 @@ describe("parseBalanceOutput", () => {
     expect(parseBalanceOutput("Your balance is 0.25000000 ZEC\n")).toBe(25000000);
   });
 
+  it("parses zingo-cli keyed balance output", () => {
+    expect(parseBalanceOutput([
+      "Launching sync task...",
+      "[",
+      "    confirmed_orchard_balance: 1000",
+      "    unconfirmed_orchard_balance: 500",
+      "    total_orchard_balance: 1500",
+      "",
+      "    confirmed_sapling_balance: 2000",
+      "    unconfirmed_sapling_balance: 0",
+      "    total_sapling_balance: 2000",
+      "",
+      "    confirmed_transparent_balance: 3000",
+      "    unconfirmed_transparent_balance: 0",
+      "    total_transparent_balance: 3000",
+      "]",
+      "Zingo CLI quit successfully."
+    ].join("\n"))).toBe(6000);
+  });
+
   it("throws on unparseable output", () => {
     expect(() => parseBalanceOutput("no numbers here")).toThrow("Cannot parse wallet balance");
   });

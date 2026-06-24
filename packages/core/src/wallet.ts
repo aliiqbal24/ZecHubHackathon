@@ -183,10 +183,19 @@ export function parseBalanceOutput(stdout: string): number {
     } catch { /* fall through */ }
   }
 
+  const confirmedBalanceMatches = [...trimmed.matchAll(/^\s*confirmed_(?:orchard|sapling|transparent)_balance:\s*([0-9]+(?:\.[0-9]{1,8})?)/gm)];
+  if (confirmedBalanceMatches.length > 0) {
+    return confirmedBalanceMatches.reduce((total, match) => total + balanceValueToZats(match[1] ?? "0"), 0);
+  }
+
   const match = trimmed.match(/(\d+\.\d{1,8})/);
   if (match?.[1]) return zecToZats(match[1]);
 
   throw new Error(`Cannot parse wallet balance from output: ${trimmed.slice(0, 200)}`);
+}
+
+function balanceValueToZats(value: string): number {
+  return value.includes(".") ? zecToZats(value) : Number(value);
 }
 
 export function parseTransactionOutput(txId: string, stdout: string): TransactionInfo {
