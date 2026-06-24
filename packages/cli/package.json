@@ -16,7 +16,8 @@
   "dependencies": {
     "@agentzcash/core": "0.2.0",
     "@agentzcash/dashboard": "0.2.0",
-    "@agentzcash/mcp-server": "0.2.0"
+    "@agentzcash/mcp-server": "0.2.0",
+    "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.2"

@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { promisify } from "node:util";
+import qrcode from "qrcode-terminal";
 import {
   createWalletAdapter,
   getAgentZcashHome,
@@ -974,7 +975,7 @@ async function wallet(subcommand: string | undefined, rest: string[]) {
       await walletDoctor();
       return;
     case "receive":
-      console.log(await readReceiveAddress(getManagedWalletDir()));
+      printReceiveAddress(await readReceiveAddress(getManagedWalletDir()));
       return;
     case "balance": {
       const { stdout } = await runZingo(["--data-dir", getManagedWalletDir(), "--waitsync", "balance"], 45_000);
@@ -989,6 +990,19 @@ async function wallet(subcommand: string | undefined, rest: string[]) {
       console.log("Usage: agentzcash wallet doctor|receive|balance|backup");
       void rest;
   }
+}
+
+function printReceiveAddress(address: string): void {
+  console.log("AgentZcash receive address:");
+  console.log("");
+  console.log(address);
+  console.log("");
+  console.log("Scan this QR code with Zodl or another shielded-capable Zcash wallet:");
+  console.log("");
+  qrcode.generate(address, { small: true });
+  console.log("");
+  console.log("After sending, check funding with:");
+  console.log("  npx agentzcash wallet balance");
 }
 
 async function installWallet(flags: Flags) {
